@@ -1,0 +1,8 @@
+{
+  "site_url": "https://relay.eclecity.net",
+  "db_host": "mysql.eclecity.net",
+  "db_name": "eclecity_relay",
+  "db_user": "eclecity_relay",
+  "db_pass": "REPLACE_WITH_THE_DATABASE_PASSWORD",
+  "db_charset": "utf8mb4"
+}

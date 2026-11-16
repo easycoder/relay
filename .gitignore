@@ -1,0 +1,27 @@
+# Local configuration and secrets
+config.php
+config.json
+.env
+.env.*
+!.env.example
+deploy.conf
+
+# Host-named config, one level above the web root (keep examples)
+*.eclecity.net.txt
+!*.eclecity.net.txt.example
+
+# Local tooling
+/various/
+/vendor/
+/node_modules/
+*.log
+
+# Generated output (the build step will recreate these)
+/search-index.json
+/sitemap.xml
+/public/home.html
+/public/projects/
+/public/projects.json
+/public/sitemap.xml
+/public/robots.txt
+/public/learn/
