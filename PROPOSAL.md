@@ -258,6 +258,9 @@ This is a service where strangers hand over assets. Trust is the feature.
 - **Human review before publication.** Every listing starts as `pending`; the
   public build only includes `approved` listings, so an automated flood of
   repositories cannot reach the catalogue without a person approving each one.
+- **Edits are reviewed too.** An owner can revise an approved listing; the
+  live page stays up while the revision is pending, and the new content
+  replaces it only after a person approves it.
 - Rate limits, a honeypot, email verification and GitHub OAuth for submission; CAPTCHA only if needed.
 - A single named moderation contact and a published response expectation.
 

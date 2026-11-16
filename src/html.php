@@ -117,6 +117,38 @@ function render_template(string $template, array $vars): string
     return $output === false ? '' : $output;
 }
 
+/**
+ * Render a page with the site layout. Used by the interactive pages; the
+ * generated catalogue pages use their own renderPage closure in build.php.
+ */
+function render_site_page(
+    string $title,
+    string $description,
+    string $canonicalPath,
+    string $content,
+    bool $noindex = false
+): string {
+    $siteUrl = rtrim((string) (relay_config()['site']['url'] ?? ''), '/');
+
+    // The interactive pages carry CSRF tokens and session state. Never let a
+    // browser reuse a cached copy with a token from an older session.
+    header('Cache-Control: no-store');
+
+    $currentUser = function_exists('current_user') && function_exists('db')
+        ? current_user()
+        : null;
+
+    return render_template('layout', [
+        'title' => $title,
+        'description' => $description,
+        'canonical' => $siteUrl . $canonicalPath,
+        'content' => $content,
+        'siteUrl' => $siteUrl,
+        'noindex' => $noindex,
+        'currentUser' => $currentUser,
+    ]);
+}
+
 function status_label(?string $status): string
 {
     $labels = [
@@ -131,6 +163,17 @@ function status_label(?string $status): string
     ];
 
     return $labels[$status ?? ''] ?? ucfirst(str_replace('-', ' ', (string) $status));
+}
+
+function review_label(?string $status): string
+{
+    $labels = [
+        'pending' => 'Awaiting review',
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+    ];
+
+    return $labels[$status ?? ''] ?? ucfirst((string) $status);
 }
 
 function arrangement_label(?string $arrangement): string

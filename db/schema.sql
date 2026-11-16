@@ -190,18 +190,53 @@ CREATE TABLE IF NOT EXISTS project_obligations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Proposed revisions to an approved listing
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS project_revisions (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    project_id    INT UNSIGNED NOT NULL,
+    created_by    INT UNSIGNED NOT NULL,
+    payload       JSON         NOT NULL,
+    -- pending | approved | rejected
+    review_status VARCHAR(16)  NOT NULL DEFAULT 'pending',
+    note          VARCHAR(500) NULL,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at   DATETIME     NULL,
+    reviewed_by   INT UNSIGNED NULL,
+    PRIMARY KEY (id),
+    KEY idx_revisions_project (project_id),
+    KEY idx_revisions_status (review_status),
+    CONSTRAINT fk_revisions_project
+        FOREIGN KEY (project_id) REFERENCES projects (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_revisions_creator
+        FOREIGN KEY (created_by) REFERENCES users (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_revisions_reviewer
+        FOREIGN KEY (reviewed_by) REFERENCES users (id)
+        ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- Expressions of interest
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS interests (
-    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    project_id INT UNSIGNED NOT NULL,
-    user_id    INT UNSIGNED NOT NULL,
-    message    TEXT         NOT NULL,
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    project_id    INT UNSIGNED NOT NULL,
+    user_id       INT UNSIGNED NOT NULL,
+    experience    TEXT         NULL,
+    availability  VARCHAR(120) NULL,
+    first_30_days TEXT         NULL,
+    wants         TEXT         NULL,
+    message       TEXT         NOT NULL,
     -- new | accepted | declined | withdrawn
-    status     VARCHAR(16)  NOT NULL DEFAULT 'new',
-    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    decided_at DATETIME     NULL,
+    status        VARCHAR(16)  NOT NULL DEFAULT 'new',
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at    DATETIME     NULL,
+    decided_by    INT UNSIGNED NULL,
+    decision_note VARCHAR(500) NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_interests_project_user (project_id, user_id),
     KEY idx_interests_status (status),
@@ -211,7 +246,10 @@ CREATE TABLE IF NOT EXISTS interests (
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_interests_user
         FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE CASCADE ON UPDATE CASCADE
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_interests_decider
+        FOREIGN KEY (decided_by) REFERENCES users (id)
+        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

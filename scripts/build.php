@@ -64,6 +64,7 @@ $obligationStmt = $pdo->prepare('SELECT obligation FROM project_obligations WHER
 foreach ($projects as &$project) {
     $project['category_name'] = $categories[$project['category']] ?? $project['category'];
     $project['is_draft'] = $project['confirmed_at'] === null;
+    $project['show_interest'] = true;
 
     $keywordStmt->execute([$project['id']]);
     $project['keywords'] = $keywordStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -240,7 +241,20 @@ foreach (array_unique($urls) as $url) {
 $sitemap .= '</urlset>' . PHP_EOL;
 $write($public . '/sitemap.xml', $sitemap);
 
-$write($public . '/robots.txt', "User-agent: *\nAllow: /\nSitemap: {$siteUrl}/sitemap.xml\n");
+$robots = "User-agent: *\n"
+    . "Allow: /\n"
+    . "Disallow: /login/\n"
+    . "Disallow: /submit/\n"
+    . "Disallow: /edit/\n"
+    . "Disallow: /interest/\n"
+    . "Disallow: /interests/\n"
+    . "Disallow: /preview/\n"
+    . "Disallow: /dashboard/\n"
+    . "Disallow: /review/\n"
+    . "Disallow: /logout/\n"
+    . "Disallow: /session.php\n"
+    . "Sitemap: {$siteUrl}/sitemap.xml\n";
+$write($public . '/robots.txt', $robots);
 
 echo PHP_EOL . 'Built ' . count($projects) . ' listing' . (count($projects) === 1 ? '' : 's') . '.' . PHP_EOL;
 

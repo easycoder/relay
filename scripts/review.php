@@ -17,6 +17,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__) . '/bootstrap.php';
+require dirname(__DIR__) . '/src/review.php';
 
 function usage(): void
 {
@@ -26,6 +27,7 @@ Usage:
   php scripts/review.php approve <slug>
   php scripts/review.php reject <slug> [--note "reason"]
 
+Revisions to live listings are reviewed at /review/.
 Only approved listings are published. Rebuild after a decision:
   php scripts/build.php
 TXT;
@@ -99,25 +101,14 @@ if (!$project) {
 
 $reviewStatus = $command === 'approve' ? 'approved' : 'rejected';
 
-$update = $pdo->prepare(
-    "UPDATE projects
-     SET review_status = ?,
-         published_at = CASE
-             WHEN ? = 'approved' THEN COALESCE(published_at, UTC_TIMESTAMP())
-             ELSE published_at
-         END
-     WHERE id = ?"
+review_project(
+    $pdo,
+    (int) $project['id'],
+    $reviewStatus,
+    $note,
+    null,
+    'cli:' . (getenv('USER') ?: 'unknown')
 );
-$update->execute([$reviewStatus, $reviewStatus, $project['id']]);
-
-$detail = 'Review via scripts/review.php by ' . (getenv('USER') ?: 'cli')
-    . ($note !== '' ? ': ' . $note : '');
-
-$audit = $pdo->prepare(
-    "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
-     VALUES (NULL, ?, 'project', ?, ?, UTC_TIMESTAMP())"
-);
-$audit->execute(['project.' . $reviewStatus, $project['id'], $detail]);
 
 echo ucfirst($reviewStatus) . " {$project['slug']} ({$project['title']}).\n";
 echo "Run php scripts/build.php to update the public catalogue.\n";

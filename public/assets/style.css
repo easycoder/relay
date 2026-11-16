@@ -77,7 +77,15 @@ a:focus-visible,
 
 nav {
     display: flex;
-    gap: 1.25rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.25rem;
+}
+
+.nav-user {
+    color: var(--muted);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
 }
 
 nav a {
@@ -255,6 +263,7 @@ h3 {
     font-size: 0.72rem;
     font-weight: 750;
     letter-spacing: 0.06em;
+    text-decoration: none;
     text-transform: uppercase;
 }
 
@@ -345,6 +354,188 @@ code {
     background: #f0eee8;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.9em;
+}
+
+.form {
+    max-width: 42rem;
+    margin-top: 1.5rem;
+}
+
+.form-wide {
+    max-width: 56rem;
+}
+
+fieldset {
+    margin: 0 0 1.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+legend {
+    padding: 0 0.4rem;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+}
+
+.field {
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+}
+
+.field > span {
+    font-size: 0.95rem;
+    font-weight: 650;
+}
+
+.field small {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.field-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0 1rem;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="url"],
+input[type="number"],
+select,
+textarea {
+    width: 100%;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--ink);
+    font: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: var(--accent);
+    outline: 3px solid rgba(47, 111, 94, 0.25);
+    outline-offset: 1px;
+}
+
+textarea {
+    resize: vertical;
+}
+
+.checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.35rem 1rem;
+    margin-bottom: 1rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.checks legend {
+    grid-column: 1 / -1;
+    margin-bottom: 0.35rem;
+    padding: 0;
+}
+
+.check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.check input {
+    margin-top: 0.25rem;
+}
+
+.form-errors {
+    margin-top: 1.5rem;
+    padding: 1rem 1.1rem;
+    border: 1px solid #e7b4b4;
+    border-radius: var(--radius);
+    background: #fff0f0;
+    color: #6b1f1f;
+}
+
+.form-errors p {
+    margin: 0 0 0.4rem;
+}
+
+.form-errors ul {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+.honeypot {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+.inline-form {
+    display: inline;
+}
+
+.review-card {
+    margin-top: 1.5rem;
+}
+
+.review-card h2 {
+    margin-bottom: 0.35rem;
+}
+
+.review-card details {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--line);
+}
+
+.review-card summary {
+    cursor: pointer;
+    font-weight: 650;
+}
+
+.review-card details h3 {
+    margin-top: 1.25rem;
+}
+
+.review-card details h4 {
+    margin-top: 1rem;
+    font-size: 1rem;
+}
+
+.review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+}
+
+.review-actions form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.6rem;
+}
+
+.reject-form .field {
+    margin-bottom: 0;
+}
+
+.reject-form .field > span {
+    font-size: 0.85rem;
 }
 
 .listing-aside {

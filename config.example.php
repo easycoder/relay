@@ -24,4 +24,8 @@ return [
         'pass'    => '',
         'charset' => 'utf8mb4',
     ],
+
+    'mail' => [
+        'from' => 'no-reply@relay.eclecity.net',
+    ],
 ];

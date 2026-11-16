@@ -10,6 +10,7 @@
     <p class="lede">Relay helps a project owner describe what they have and what a successor would inherit, so the right person — or their agent — can decide before they commit.</p>
     <p class="actions">
         <a class="button" href="/projects/">Browse projects</a>
+        <a class="button button-secondary" href="/submit/">Submit a project</a>
         <a class="button button-secondary" href="#how">How it works</a>
     </p>
 </section>

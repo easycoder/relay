@@ -155,7 +155,12 @@ if (!empty($project['assets'])) {
 
             <div class="interest">
                 <h2>Express interest</h2>
-                <p>The interest relay is the next piece of the build. Until then, this listing is a statement of intent.</p>
+                <?php if (!empty($project['show_interest'])): ?>
+                    <p>Tell the owner what you would do and what you need. Your email is shared only if they accept.</p>
+                    <p><a class="button" href="/interest/?project=<?= e($project['slug']) ?>">Express interest</a></p>
+                <?php else: ?>
+                    <p>Expressions of interest open when this listing is published.</p>
+                <?php endif; ?>
                 <p class="meta">Relay never asks for a passphrase. <a href="/learn/handover/">How a handover mechanism works</a>.</p>
             </div>
 

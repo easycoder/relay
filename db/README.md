@@ -33,16 +33,26 @@ only inserts missing categories.
 
 ## Migrations
 
-Numbered migrations live in `db/migrations/`. Apply them in order before
-deploying code that depends on them:
+Numbered migrations live in `db/migrations/`. Apply each new file once, in
+order, before deploying code that depends on it. If `0001` is already applied,
+run only the new file:
 
 ```sh
 mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0001_add_review_status.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0002_add_project_revisions.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0003_add_interest_details.sql
 ```
 
 `0001` adds `projects.review_status` (`pending`, `approved`, `rejected`).
 Existing rows are approved; new rows default to pending.
+
+`0002` adds `project_revisions`, which holds an owner's proposed changes to an
+approved listing while the live page stays published.
+
+`0003` adds the structured answers and owner-decision fields to `interests`.
 
 ## Load the first listing
 
@@ -87,7 +97,8 @@ files are generated on the server and excluded from code deploys.
 
 ## Human review
 
-Only approved listings are published. List the pending queue and decide:
+Only approved listings are published. Reviewers with the `admin` or
+`moderator` role use `/review/`; the CLI remains for new listings:
 
 ```sh
 php scripts/review.php list
@@ -95,8 +106,9 @@ php scripts/review.php approve <slug>
 php scripts/review.php reject <slug> --note "reason"
 ```
 
-Then rebuild with `php scripts/build.php`. Each decision writes an
-`audit_log` row.
+Revisions to live listings are reviewed at `/review/` as well. Then rebuild
+with `php scripts/build.php`. Each decision writes an `audit_log` row; the web
+queue sets `published_at` on first approval.
 
 ## Check the connection
 
