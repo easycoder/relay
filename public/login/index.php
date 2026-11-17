@@ -6,10 +6,11 @@ require dirname(__DIR__, 2) . '/bootstrap.php';
 require dirname(__DIR__, 2) . '/src/html.php';
 require dirname(__DIR__, 2) . '/src/auth.php';
 
-if (current_user() !== null) {
-    redirect('/dashboard/');
-}
+// This page is reachable while signed in, on purpose: signing in again adds a
+// second account to this browser rather than replacing the first, and the
+// accounts page points here for exactly that.
 
+$signedIn = current_user();
 $errors = [];
 $email = '';
 $name = '';
@@ -51,11 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($user === null && $name === '') {
                 $errors[] = 'Enter your name so we know what to call you.';
             } else {
-                if ($user === null) {
-                    create_user($email, $name);
-                }
-
-                $token = create_magic_link($email);
+                // Nothing is created here. The name rides on the link and the
+                // account appears only when that link is used, so a request
+                // for an address nobody can read leaves no user row behind.
+                $token = create_magic_link($email, $name);
 
                 if (!send_magic_link($email, $token)) {
                     error_log('Relay: mail() failed while sending a magic link.');
@@ -73,6 +73,8 @@ $content = render_template('login', [
     'name' => $name,
     'sent' => $sent,
     'csrf' => login_csrf_token(),
+    'accounts' => live_remembered_accounts(),
+    'signedIn' => $signedIn,
 ]);
 
 echo render_site_page(

@@ -44,6 +44,10 @@ mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0002_add_project_revisions.sql
 mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0003_add_interest_details.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0004_add_review_note_and_resubmissions.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0005_add_magic_link_display_name.sql
 ```
 
 `0001` adds `projects.review_status` (`pending`, `approved`, `rejected`).
@@ -53,6 +57,15 @@ Existing rows are approved; new rows default to pending.
 approved listing while the live page stays published.
 
 `0003` adds the structured answers and owner-decision fields to `interests`.
+
+`0004` adds `projects.review_note` (the reviewer's reason, shown to the owner
+and cleared on resubmission) and `project_resubmissions`, one row per retry,
+which enforces the five-in-thirty-days limit on resubmitting a rejected
+listing.
+
+`0005` adds `magic_links.display_name`, so a sign-in link carries the name a
+new account should get. Accounts are created when a link is used, not when one
+is requested.
 
 ## Load the first listing
 

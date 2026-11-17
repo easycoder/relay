@@ -11,6 +11,15 @@ $user = require_login();
 $pdo = db();
 $categories = $pdo->query('SELECT slug, name FROM categories ORDER BY sort_order, name')->fetchAll();
 
+// Bound the queue, not just the clock: the reviewer is the scarce resource, so
+// an account may only have so many listings waiting, and only so many new ones
+// in the rolling window. A run of rejections pauses the account outright.
+$ownerId = (int) $user['id'];
+$submissionPauseUntil = submission_pause_until($pdo, $ownerId);
+$pendingCount = pending_listings($pdo, $ownerId);
+$listingsUsed = new_listings_in_window($pdo, $ownerId);
+$listingsSlotAt = new_listing_slot_at($pdo, $ownerId);
+
 $errors = [];
 $old = [];
 
@@ -23,23 +32,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Honeypot: a bot filled the hidden field. Show the normal success
         // page and write nothing.
         redirect('/dashboard/?submitted=1');
+    } elseif ($submissionPauseUntil !== null) {
+        $errors['form'] = 'Submissions are paused for this account until '
+            . format_date($submissionPauseUntil) . ': ' . SUBMIT_STRIKES
+            . ' listings were rejected in the last ' . SUBMIT_WINDOW_DAYS . ' days.';
+    } elseif ($pendingCount >= SUBMIT_PENDING_LIMIT) {
+        $errors['form'] = 'You already have ' . SUBMIT_PENDING_LIMIT
+            . ' listings waiting for review. Wait for a decision on one of them before submitting another.';
+    } elseif ($listingsUsed >= SUBMIT_WINDOW_LIMIT) {
+        $errors['form'] = 'You have submitted ' . SUBMIT_WINDOW_LIMIT . ' listings in the last '
+            . SUBMIT_WINDOW_DAYS . ' days. Another one is possible from '
+            . format_date($listingsSlotAt) . '.';
     } else {
-        $stmt = $pdo->prepare(
-            'SELECT COUNT(*) FROM projects
-             WHERE owner_id = ? AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)'
-        );
-        $stmt->execute([$user['id']]);
+        [$data, $errors] = validate_project_submission($_POST, $pdo);
+        $old = $_POST;
 
-        if ((int) $stmt->fetchColumn() >= 3) {
-            $errors['form'] = 'You have submitted several projects in the last day. Try again tomorrow.';
-        } else {
-            [$data, $errors] = validate_project_submission($_POST, $pdo);
-            $old = $_POST;
-
-            if ($errors === []) {
-                create_project($pdo, (int) $user['id'], $data);
-                redirect('/dashboard/?submitted=1');
-            }
+        if ($errors === []) {
+            create_project($pdo, $ownerId, $data);
+            redirect('/dashboard/?submitted=1');
         }
     }
 }
@@ -57,6 +67,13 @@ $content = render_template('submit', [
     'readinessLevels' => readiness_options(),
     'assets' => asset_options(),
     'contactModes' => contact_mode_options(),
+    'submissionPauseUntil' => $submissionPauseUntil,
+    'submissionStrikes' => SUBMIT_STRIKES,
+    'pendingLimit' => SUBMIT_PENDING_LIMIT,
+    'pendingCount' => $pendingCount,
+    'listingsLimit' => SUBMIT_WINDOW_LIMIT,
+    'listingsUsed' => $listingsUsed,
+    'listingsWindowDays' => SUBMIT_WINDOW_DAYS,
 ]);
 
 echo render_site_page(

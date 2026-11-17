@@ -1,17 +1,33 @@
-# Cancel, interest relay and owner previews — what changed and what to do
+# Accounts are created when the link is used, not when it is requested
 
-**Action:** apply `db/migrations/0002_add_project_revisions.sql` and `db/migrations/0003_add_interest_details.sql` if they are not already applied, then run `./deploy.sh --build`. Open an approved listing as a non-owner and use **Express interest**; the owner accepts at `/interests/`.
+**Action:** apply the migration, then deploy and reload.
+
+```sh
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0005_add_magic_link_display_name.sql
+```
 
 ## What changed
 
-- The edit form has **Cancel** beside Save.
-- Approved listings have **Express interest** → `/interest/?project=…`. A signed-in applicant answers four short questions; their email is hidden from the owner.
-- The owner uses `/interests/` (linked from the dashboard and each project's “new expression” badge) to read, accept or decline. Accepting reveals both email addresses, sends an introduction to both and audits the decision; declining hides them and shows the reason to the applicant.
-- The applicant's dashboard lists expressions and statuses; accepted ones show the owner's email.
-- Earlier in this change: dashboard previews, header name/email, editing and sign-up names.
+- **Requesting a link creates nothing.** `public/login/index.php` no longer
+  calls `create_user()`; a POST for any address writes one `magic_links` row and
+  sends the mail. An address nobody can read therefore leaves no `users` row
+  behind, which removes the row-flooding route.
+- **The name travels with the link.** New column `magic_links.display_name`
+  (`0005`). `/login/verify/` calls `find_or_create_user($email, $displayName)`
+  and creates the account at that point, with the chosen name; an existing
+  address keeps its stored name and just has `verified_at` set.
+- `create_magic_link()` takes an optional display name; `consume_magic_link()`
+  returns it. `php scripts/login-link.php <email> "Name"` now records the name
+  on the link instead of creating the user itself — it still asks for a name
+  when the address is new.
+- The login form's hint says the account is created when the link is used.
 
 ## Notes
 
-- Apply `0003` before deploying; `/interest/`, `/interests/` and the dashboard query the new columns.
-- The pending dummy is not open for interest until it is approved and rebuilt. Use the Relay listing to test the relay, or approve the dummy first.
-- `mail()` delivery is used for the notification and introduction; contact details also appear on the pages after acceptance, so a failed email does not block the introduction.
+- Existing unverified rows are untouched; `0005` prints their count so you can
+  see whether any accumulated:
+  `SELECT COUNT(*) FROM users WHERE verified_at IS NULL;`
+- Nothing else reads `users` before a session exists, so the rest of the flow
+  (submission caps, strikes, resubmission limit) is unchanged.
+- `db/schema.sql` and `db/README.md` carry the new column and migration.

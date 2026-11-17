@@ -30,17 +30,14 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 190) {
 try {
     $user = user_by_email($email);
 
-    if ($user === null) {
-        if ($name === '') {
-            fwrite(STDERR, "New account: add a name, for example:\n");
-            fwrite(STDERR, "  php scripts/login-link.php {$email} \"Their name\"\n");
-            exit(1);
-        }
-
-        create_user($email, $name);
+    if ($user === null && $name === '') {
+        fwrite(STDERR, "New account: add a name, for example:\n");
+        fwrite(STDERR, "  php scripts/login-link.php {$email} \"Their name\"\n");
+        exit(1);
     }
 
-    $token = create_magic_link($email);
+    // The account is created when the link is used, with the name carried here.
+    $token = create_magic_link($email, $name);
 } catch (Throwable $e) {
     fwrite(STDERR, "Could not create link: {$e->getMessage()}\n");
     exit(1);

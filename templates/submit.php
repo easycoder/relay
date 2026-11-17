@@ -19,6 +19,10 @@
 /** @var string $submitLabel */
 /** @var string $notice */
 /** @var string $cancelUrl */
+/** @var string $reviewNote */
+/** @var int $resubmissionsUsed */
+/** @var int $resubmissionLimit */
+/** @var string|null $resubmitOpenAt */
 
 $eyebrow = $eyebrow ?? 'Submit';
 $heading = $heading ?? 'Describe a project';
@@ -27,6 +31,19 @@ $formAction = $formAction ?? '/submit/';
 $submitLabel = $submitLabel ?? 'Submit for review';
 $notice = $notice ?? '';
 $cancelUrl = $cancelUrl ?? '';
+$reviewNote = $reviewNote ?? '';
+$resubmissionsUsed = $resubmissionsUsed ?? 0;
+$resubmissionLimit = $resubmissionLimit ?? 0;
+$resubmitOpenAt = $resubmitOpenAt ?? null;
+$submissionPauseUntil = $submissionPauseUntil ?? null;
+$submissionStrikes = $submissionStrikes ?? 0;
+$pendingLimit = $pendingLimit ?? 0;
+$pendingCount = $pendingCount ?? 0;
+$listingsLimit = $listingsLimit ?? 0;
+$listingsUsed = $listingsUsed ?? 0;
+$listingsWindowDays = $listingsWindowDays ?? 30;
+
+$saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
 
 ?>
 <section class="hero auth-hero">
@@ -48,6 +65,29 @@ $cancelUrl = $cancelUrl ?? '';
 
 <?php if ($notice !== ''): ?>
     <p class="notice"><?= e($notice) ?></p>
+<?php endif; ?>
+
+<?php if ($reviewNote !== ''): ?>
+    <div class="notice" role="status">
+        <p><strong>The reviewer's reason:</strong> <?= e($reviewNote) ?></p>
+        <p class="meta">Saving does not keep this reason: the listing goes back for review as a new submission.</p>
+    </div>
+<?php endif; ?>
+
+<?php if ($submissionPauseUntil !== null): ?>
+    <p class="notice">Submissions are paused for this account until <?= e(format_date($submissionPauseUntil)) ?>: <?= (int) $submissionStrikes ?> listings were rejected in the last <?= (int) $listingsWindowDays ?> days. Rejections age out of the window one at a time, so this clears by itself.</p>
+<?php endif; ?>
+
+<?php if ((int) $listingsLimit > 0 && $submissionPauseUntil === null): ?>
+    <p class="meta">New listings: <?= (int) $listingsUsed ?> of <?= (int) $listingsLimit ?> in the last <?= (int) $listingsWindowDays ?> days. Up to <?= (int) $pendingLimit ?> may be waiting for review at once<?php if ((int) $pendingLimit > 0): ?> (<?= (int) $pendingCount ?> now)<?php endif; ?>.</p>
+<?php endif; ?>
+
+<?php if ((int) $resubmissionLimit > 0): ?>
+    <?php if ($resubmitOpenAt !== null): ?>
+        <p class="notice">Resubmission is closed for now. This listing has used all <?= (int) $resubmissionLimit ?> of its resubmissions in the last thirty days; it opens again on <?= e(format_date($resubmitOpenAt)) ?>.</p>
+    <?php else: ?>
+        <p class="meta">Resubmissions: <?= (int) $resubmissionsUsed ?> of <?= (int) $resubmissionLimit ?> used in the last thirty days.</p>
+    <?php endif; ?>
 <?php endif; ?>
 
 <form class="form form-wide" method="post" action="<?= e($formAction) ?>">
@@ -266,7 +306,7 @@ $cancelUrl = $cancelUrl ?? '';
 
         <p class="meta">Submissions are reviewed by a person before publication. Nothing is published automatically.</p>
         <div class="actions">
-            <button class="button" type="submit"><?= e($submitLabel) ?></button>
+            <button class="button" type="submit"<?= $saveDisabled ? ' disabled' : '' ?>><?= e($submitLabel) ?></button>
             <?php if ($cancelUrl !== ''): ?>
                 <a class="button button-secondary" href="<?= e($cancelUrl) ?>">Cancel</a>
             <?php endif; ?>

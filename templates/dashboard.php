@@ -5,14 +5,17 @@
 /** @var bool $submitted */
 /** @var bool $updated */
 /** @var bool $revision */
+/** @var bool $switched */
 /** @var bool $signoutStale */
 /** @var string $csrf */
 /** @var bool $isReviewer */
 /** @var int|null $newInterestCount */
 /** @var array<int, array<string, mixed>>|null $myInterests */
+/** @var int $accountCount */
 
 $newInterestCount = $newInterestCount ?? 0;
 $myInterests = $myInterests ?? [];
+$accountCount = $accountCount ?? 0;
 
 ?>
 <section class="hero auth-hero">
@@ -33,6 +36,10 @@ $myInterests = $myInterests ?? [];
     <p class="notice">Your revision has been saved for review. The live listing stays visible until it is approved.</p>
 <?php endif; ?>
 
+<?php if (!empty($switched)): ?>
+    <p class="notice">You are now signed in as <?= e($user['display_name']) ?> (<?= e($user['email']) ?>).</p>
+<?php endif; ?>
+
 <?php if (!empty($signoutStale)): ?>
     <p class="notice">The page you signed out from was out of date. This is the refreshed dashboard; press Sign out again.</p>
 <?php endif; ?>
@@ -44,6 +51,11 @@ $myInterests = $myInterests ?? [];
     <?php endif; ?>
     <?php if ($isReviewer): ?>
         <a class="button button-secondary" href="/review/">Review queue</a>
+    <?php endif; ?>
+    <?php if ((int) $accountCount > 0): ?>
+        <a class="button button-secondary" href="/accounts/">Switch account (<?= (int) $accountCount ?>)</a>
+    <?php else: ?>
+        <a class="button button-secondary" href="/accounts/">Accounts</a>
     <?php endif; ?>
     <form method="post" action="/logout/" class="inline-form">
         <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
@@ -73,7 +85,13 @@ $myInterests = $myInterests ?? [];
                     <?php endif; ?>
                 </p>
                 <h3><a href="<?= e($projectUrl) ?>"><?= e($project['title']) ?></a></h3>
-                <p class="card-meta">Submitted <?= e(format_date($project['created_at'])) ?> · <a href="/edit/?slug=<?= e($project['slug']) ?>">Edit</a></p>
+                <p class="card-meta">Submitted <?= e(format_date($project['created_at'])) ?> · <a href="/edit/?slug=<?= e($project['slug']) ?>"><?= $project['review_status'] === 'rejected' ? 'Edit and resubmit' : 'Edit' ?></a></p>
+                <?php if ($project['review_status'] === 'rejected'): ?>
+                    <?php if (!empty($project['review_note'])): ?>
+                        <p class="meta">Reviewer's reason: <?= e($project['review_note']) ?></p>
+                    <?php endif; ?>
+                    <p class="meta">Rejected. The details you entered are kept: edit what needs changing and saving sends it back for review.</p>
+                <?php endif; ?>
             </article>
         <?php endforeach; ?>
     </div>

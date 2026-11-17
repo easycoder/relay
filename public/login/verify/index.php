@@ -15,7 +15,7 @@ if ($token === '' || strlen($token) !== 64) {
     $link = consume_magic_link($token);
 
     if ($link !== null) {
-        $userId = find_or_create_user($link['email']);
+        $userId = find_or_create_user($link['email'], (string) ($link['display_name'] ?? ''));
         create_session($userId);
         redirect('/dashboard/');
     }

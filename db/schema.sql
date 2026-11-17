@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS projects (
     -- pending | approved | rejected. Only approved listings are built into
     -- the public catalogue; new submissions start pending.
     review_status          VARCHAR(16)   NOT NULL DEFAULT 'pending',
+    -- The reviewer's reason for a rejection, shown to the owner and cleared
+    -- when the listing is resubmitted.
+    review_note            VARCHAR(500)  NULL,
     -- gift | sale | revenue-share | sponsorship | co-maintenance | other
     arrangement            VARCHAR(32)   NULL,
     category               VARCHAR(64)   NOT NULL,
@@ -218,6 +221,24 @@ CREATE TABLE IF NOT EXISTS project_revisions (
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per resubmission of a listing that is not live. The retry rate is
+-- limited by counting these, so a bot cannot resubmit endlessly.
+CREATE TABLE IF NOT EXISTS project_resubmissions (
+    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    project_id INT UNSIGNED NOT NULL,
+    user_id    INT UNSIGNED NOT NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_resubmissions_project_created (project_id, created_at),
+    KEY idx_resubmissions_user (user_id),
+    CONSTRAINT fk_resubmissions_project
+        FOREIGN KEY (project_id) REFERENCES projects (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_resubmissions_user
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------------
 -- Expressions of interest
 -- ---------------------------------------------------------------------------
@@ -320,6 +341,9 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS magic_links (
     id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
     email           VARCHAR(190) NOT NULL,
+    -- The name a new account should get, carried until the link is used: the
+    -- users row is created then, never when a link is requested.
+    display_name    VARCHAR(100) NULL,
     token_hash      CHAR(64)     NOT NULL, -- SHA-256 of the token; never the token itself
     -- login | verify | edit-listing
     purpose         VARCHAR(32)  NOT NULL DEFAULT 'login',

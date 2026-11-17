@@ -50,11 +50,13 @@ $content = render_template('dashboard', [
     'submitted' => isset($_GET['submitted']),
     'updated' => isset($_GET['updated']),
     'revision' => isset($_GET['revision']),
+    'switched' => isset($_GET['switched']),
     'signoutStale' => (($_GET['signout'] ?? '') === 'stale'),
     'csrf' => csrf_token(),
     'isReviewer' => in_array($user['role'], ['admin', 'moderator'], true),
     'newInterestCount' => $newInterestCount,
     'myInterests' => $myInterests,
+    'accountCount' => count(live_remembered_accounts()),
 ]);
 
 echo render_site_page('Dashboard — Relay', 'Your Relay listings.', '/dashboard/', $content, true);

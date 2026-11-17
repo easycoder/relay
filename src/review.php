@@ -20,11 +20,12 @@ function review_project(
         throw new InvalidArgumentException('Review status must be approved or rejected.');
     }
 
-    $note = trim($note);
+    $note = substr(trim($note), 0, 500);
 
     $update = $pdo->prepare(
         "UPDATE projects
          SET review_status = ?,
+             review_note = ?,
              published_at = CASE
                  WHEN ? = 'approved' THEN COALESCE(published_at, UTC_TIMESTAMP())
                  ELSE published_at
@@ -35,7 +36,13 @@ function review_project(
              END
          WHERE id = ?"
     );
-    $update->execute([$status, $status, $status, $projectId]);
+    $update->execute([
+        $status,
+        $status === 'rejected' && $note !== '' ? $note : null,
+        $status,
+        $status,
+        $projectId,
+    ]);
 
     $detail = 'Reviewed by ' . $actorLabel . ($note !== '' ? ': ' . $note : '');
 

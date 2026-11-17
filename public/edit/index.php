@@ -47,6 +47,19 @@ $pendingRevision = pending_revision($pdo, (int) $project['id']);
 $isLive = $project['review_status'] === 'approved';
 $hasPendingRevision = $pendingRevision !== null;
 
+// A retry is a save that puts a non-live listing back in the queue. Count what
+// this listing has already used, so endless resubmission is refused before it
+// is written rather than noticed afterwards.
+$resubmissionsUsed = $isLive ? 0 : resubmissions_used($pdo, (int) $project['id']);
+$resubmitOpenAt = $resubmissionsUsed >= RESUBMIT_LIMIT
+    ? resubmissions_open_at($pdo, (int) $project['id'])
+    : null;
+$resubmitBlocked = $resubmitOpenAt !== null;
+
+// A pause after repeated rejections belongs to the owner's account, not to
+// whoever is editing: a moderator fixing wording should not be blocked by it.
+$submissionPauseUntil = submission_pause_until($pdo, (int) $project['owner_id']);
+
 $old = $hasPendingRevision
     ? project_data_to_form(revision_data($pendingRevision))
     : project_form_data($project, $relations);
@@ -63,6 +76,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         [$data, $errors] = validate_project_submission($_POST, $pdo);
         $old = $_POST;
+
+        // The cap is checked before anything is written: an endless retry loop
+        // gets a refusal, not a queue entry.
+        if ($errors === [] && $resubmitBlocked) {
+            $errors['form'] = 'This listing has been resubmitted ' . RESUBMIT_LIMIT . ' times in the last '
+                . RESUBMIT_WINDOW_DAYS . ' days. It can be resubmitted again from '
+                . format_date($resubmitOpenAt) . '.';
+        }
+
+        if ($errors === [] && $submissionPauseUntil !== null) {
+            $errors['form'] = 'Submissions for this account are paused until '
+                . format_date($submissionPauseUntil) . ': ' . SUBMIT_STRIKES
+                . ' listings were rejected in the last ' . SUBMIT_WINDOW_DAYS . ' days.';
+        }
 
         if ($errors === []) {
             $pdo->beginTransaction();
@@ -88,9 +115,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 apply_project_data($pdo, (int) $project['id'], $data);
 
+                // A resubmission replaces the rejection: the old reason no
+                // longer describes the listing that is now waiting.
                 $pdo->prepare(
-                    "UPDATE projects SET review_status = 'pending' WHERE id = ?"
+                    "UPDATE projects SET review_status = 'pending', review_note = NULL WHERE id = ?"
                 )->execute([$project['id']]);
+
+                record_resubmission($pdo, (int) $project['id'], (int) $user['id']);
 
                 $audit = $pdo->prepare(
                     "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
@@ -119,6 +150,8 @@ if ($isLive && $hasPendingRevision) {
     $notice = 'You already have a revision awaiting review. Saving replaces that pending revision; the live listing stays visible.';
 } elseif ($isLive) {
     $notice = 'This listing is live. Your changes are saved as a revision and reviewed before they replace it.';
+} elseif ($project['review_status'] === 'rejected') {
+    $notice = 'This listing was rejected. Everything you entered is still here: change what you need and save, and it goes back into the review queue as a fresh submission.';
 } else {
     $notice = 'This listing is not public yet. Saving updates it and returns it to the review queue.';
 }
@@ -140,10 +173,18 @@ $content = render_template('submit', [
     'heading' => 'Edit ' . form_value($old, 'title', $project['title']),
     'intro' => $isLive
         ? 'Changes are reviewed before they replace the live listing.'
-        : 'This listing is not public yet. Saving returns it to the review queue.',
+        : ($project['review_status'] === 'rejected'
+            ? 'This listing was rejected. Your existing details are kept; saving resubmits it for review.'
+            : 'This listing is not public yet. Saving returns it to the review queue.'),
     'formAction' => '/edit/?slug=' . urlencode($project['slug']),
     'submitLabel' => $isLive ? 'Save revision for review' : 'Save and resubmit',
     'notice' => $notice,
+    'reviewNote' => (string) ($project['review_note'] ?? ''),
+    'resubmissionsUsed' => $resubmissionsUsed,
+    'resubmissionLimit' => RESUBMIT_LIMIT,
+    'resubmitOpenAt' => $resubmitOpenAt,
+    'submissionPauseUntil' => $submissionPauseUntil,
+    'submissionStrikes' => SUBMIT_STRIKES,
     'cancelUrl' => '/dashboard/',
 ]);
 

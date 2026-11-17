@@ -60,12 +60,15 @@ Then rebuild.
 ## Sign-in and submission
 
 Sign-in uses a single-use email link; there are no passwords. The form asks
-for a name and an email address. For a new account the name is used as the
-display name; if the address already exists, the name is ignored and the
-existing one is kept. `/login/verify/` creates a session. The role account
-`hello@relay.eclecity.net` is already an `admin`. `/submit/` requires sign-in
-and writes a `pending` listing; `/dashboard/` shows an owner their listings,
-their review status and an Edit link.
+for a name and an email address. **Nothing is created when the form is
+submitted.** The name travels with the link (`magic_links.display_name`) and
+`/login/verify/` creates the account, with that name, only when the link is
+used — so an address nobody can read never leaves a `users` row behind. If the
+address already exists, the name is ignored and the existing one is kept. The
+same visit creates the session. The role account `hello@relay.eclecity.net` is
+already an `admin`. `/submit/` requires sign-in and writes a `pending` listing;
+`/dashboard/` shows an owner their listings, their review status and an Edit
+link.
 
 If PHP `mail()` is unavailable, the maintainer can print a link on the server.
 For a new address, add a name:
@@ -90,6 +93,28 @@ php scripts/mail-test.php hello@relay.eclecity.net
 ```
 
 If email is unavailable, the CLI link above still signs you in.
+
+A session lasts thirty days, and it renews itself: once it has less than
+fifteen days left, any page load pushes its expiry back out to thirty days. A
+session you use stays signed in; one you leave alone lapses. There is no
+absolute limit, so a browser you use regularly never asks for another link.
+
+### Switching accounts in one browser
+
+Signing in does not throw the previous account away. The account you leave
+stays in a second httpOnly cookie, `relay_accounts`, as its own session row,
+and `/accounts/` (linked from the dashboard) lists them: switch with one
+click, forget one, or **Forget this browser** to end all of them. `/login/`
+offers the same list as **Continue as** buttons, and it stays reachable while
+you are signed in — **Sign in as someone else** takes you there, and the
+account you sign in with is added alongside the current one rather than
+replacing it. Getting to the admin account costs a click rather than an email.
+
+Sign out ends the account you are using and leaves the others switchable, so
+signing back in as the same person is still one click. The list holds up to six
+accounts, one entry per address, and a switch rotates the token it activates.
+Tokens stay in cookies that page scripts cannot read — nothing is kept in
+`localStorage`, and no token is ever written into the HTML.
 
 The header shows the signed-in name and email on every page. Interactive pages
 render it server-side; the pre-rendered catalogue pages fetch `/session.php`
@@ -120,7 +145,17 @@ php scripts/review.php reject <slug> --note "reason"
 ```
 
 The web queue writes an `audit_log` entry, sets `published_at` on first
-approval and gives the listing a six-month expiry. Rebuild after a decision:
+approval and gives the listing a six-month expiry. A rejection reason is also
+stored on the listing itself (`projects.review_note`) and shown to the owner on
+the dashboard and at the top of the edit form; it is cleared when they
+resubmit. Both that column and the retry counter below come from `0004`:
+
+```sh
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0004_add_review_note_and_resubmissions.sql
+```
+
+Rebuild after a decision:
 
 ```sh
 ./deploy.sh --build
@@ -138,6 +173,45 @@ listing untouched.
 The dashboard title is also a link: an approved listing opens its public page;
 a pending or rejected listing opens `/preview/?slug=…`, an owner-only preview
 with an Edit button. The preview is `noindex` and never published.
+
+A rejected listing shows the reviewer's reason and the retries it has used. A
+listing may be resubmitted five times in any rolling thirty days: each save of
+a listing that is not live is recorded in `project_resubmissions`, and at the
+limit the save is refused before anything is written — the edit form shows the
+date the next attempt opens and disables the save button, so a bot cannot loop
+the queue. Edits to an approved listing are revisions and are not counted.
+`RESUBMIT_LIMIT` and `RESUBMIT_WINDOW_DAYS` in `src/projects.php` are the
+knobs.
+
+## Limits on submissions
+
+Two things are scarce — mail and reviewer time — so both are bounded per
+account, and the refusals happen before anything is written.
+
+- **New listings.** At most three in any rolling thirty days, and at most two
+  waiting for review at once. An approval or rejection frees a queue slot; the
+  next new listing opens when the oldest one ages out of the window. The point
+  is the queue bound: a reviewer can never face a pile from one account,
+  however the attempts are paced.
+- **Resubmissions.** Five per listing in any rolling thirty days, as above.
+- **Rejections.** Three rejected listings in thirty days pause the account's
+  submissions and resubmissions for thirty days. Rejections are counted from
+  `audit_log`, so resubmitting a listing does not erase the strike, and they
+  age out of the window one at a time, so the pause lifts by itself. The pause
+  keys on the listing's owner, so a moderator editing someone else's listing is
+  not blocked by that account's record.
+- **Sign-in.** Ten magic links per IP and five per address per fifteen minutes.
+
+The knobs are all in `src/projects.php`: `SUBMIT_PENDING_LIMIT`,
+`SUBMIT_WINDOW_LIMIT`, `SUBMIT_WINDOW_DAYS`, `SUBMIT_STRIKES`,
+`RESUBMIT_LIMIT`, `RESUBMIT_WINDOW_DAYS`.
+
+What these do **not** cover: `users` rows are still created when a link is
+*requested* (`public/login/index.php` calls `create_user()` before sending), so
+an unverified row exists for any address typed into the form, bounded only by
+the magic-link budget. Such a row cannot submit anything — that needs a session,
+which needs a consumed link — so it is a clutter-and-noise risk rather than a
+submission route.
 
 Apply `db/migrations/0002_add_project_revisions.sql` before deploying the edit
 flow. The live page is only regenerated after the revision is approved and the

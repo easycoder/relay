@@ -10,6 +10,36 @@
 
 declare(strict_types=1);
 
+/**
+ * How many times a listing may be resubmitted inside the rolling window.
+ *
+ * A retry is any save that puts a listing back in the queue: the first
+ * submission goes through /submit/ and is not counted. The cap exists so a bot
+ * cannot resubmit endlessly; five a month is generous for a person fixing a
+ * rejection.
+ */
+const RESUBMIT_LIMIT = 5;
+
+/** The window, in days, that RESUBMIT_LIMIT applies over. */
+const RESUBMIT_WINDOW_DAYS = 30;
+
+/**
+ * How many listings an account may have waiting for review at once.
+ *
+ * The reviewer is the scarce resource: a queue bound stops one account burying
+ * the queue regardless of pacing, and an approval or rejection frees a slot.
+ */
+const SUBMIT_PENDING_LIMIT = 2;
+
+/** How many new listings an account may create inside the rolling window. */
+const SUBMIT_WINDOW_LIMIT = 3;
+
+/** The window, in days, for SUBMIT_WINDOW_LIMIT and the rejection strikes. */
+const SUBMIT_WINDOW_DAYS = 30;
+
+/** Rejections inside the window that pause an account's submissions. */
+const SUBMIT_STRIKES = 3;
+
 function project_status_options(): array
 {
     return [
@@ -634,6 +664,143 @@ function pending_revision(PDO $pdo, int $projectId): ?array
     $row = $stmt->fetch();
 
     return $row === false ? null : $row;
+}
+
+/**
+ * Listings this account has waiting for review.
+ */
+function pending_listings(PDO $pdo, int $ownerId): int
+{
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM projects WHERE owner_id = ? AND review_status = 'pending'"
+    );
+    $stmt->execute([$ownerId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Listings this account has created inside the window.
+ */
+function new_listings_in_window(PDO $pdo, int $ownerId): int
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM projects
+         WHERE owner_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)'
+    );
+    $stmt->execute([$ownerId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * When the oldest listing in the window ages out, which is when the next one
+ * may be created. Null when the account has room now.
+ */
+function new_listing_slot_at(PDO $pdo, int $ownerId): ?string
+{
+    $stmt = $pdo->prepare(
+        'SELECT DATE_ADD(MIN(created_at), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)
+         FROM projects
+         WHERE owner_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)'
+    );
+    $stmt->execute([$ownerId]);
+    $value = $stmt->fetchColumn();
+
+    return is_string($value) && $value !== '' ? $value : null;
+}
+
+/**
+ * Rejections this account has collected inside the window.
+ *
+ * Counted from the audit trail rather than from the listings themselves: a
+ * rejected listing that is resubmitted stops being rejected, but the record of
+ * the decision should not disappear with it.
+ */
+function rejections_in_window(PDO $pdo, int $ownerId): int
+{
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM audit_log a
+         JOIN projects p ON p.id = a.entity_id
+         WHERE a.action = 'project.rejected'
+           AND a.entity_type = 'project'
+           AND p.owner_id = ?
+           AND a.created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)"
+    );
+    $stmt->execute([$ownerId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * When a paused account may submit again. Null when it is not paused.
+ */
+function submission_pause_until(PDO $pdo, int $ownerId): ?string
+{
+    if (rejections_in_window($pdo, $ownerId) < SUBMIT_STRIKES) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT DATE_ADD(MIN(a.created_at), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)
+         FROM audit_log a
+         JOIN projects p ON p.id = a.entity_id
+         WHERE a.action = 'project.rejected'
+           AND a.entity_type = 'project'
+           AND p.owner_id = ?
+           AND a.created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)"
+    );
+    $stmt->execute([$ownerId]);
+    $value = $stmt->fetchColumn();
+
+    return is_string($value) && $value !== '' ? $value : null;
+}
+
+/**
+ * How many resubmissions this listing has used inside the window.
+ */
+function resubmissions_used(PDO $pdo, int $projectId): int
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM project_resubmissions
+         WHERE project_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . RESUBMIT_WINDOW_DAYS . ' DAY)'
+    );
+    $stmt->execute([$projectId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * When the oldest resubmission in the window drops out, which is when the next
+ * attempt becomes possible. Null when there is nothing to wait for.
+ */
+function resubmissions_open_at(PDO $pdo, int $projectId): ?string
+{
+    $stmt = $pdo->prepare(
+        'SELECT DATE_ADD(MIN(created_at), INTERVAL ' . RESUBMIT_WINDOW_DAYS . ' DAY)
+         FROM project_resubmissions
+         WHERE project_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . RESUBMIT_WINDOW_DAYS . ' DAY)'
+    );
+    $stmt->execute([$projectId]);
+    $value = $stmt->fetchColumn();
+
+    return is_string($value) && $value !== '' ? $value : null;
+}
+
+/**
+ * Record a resubmission. One row per retry, so the window can be counted.
+ */
+function record_resubmission(PDO $pdo, int $projectId, int $userId): void
+{
+    $pdo->prepare(
+        'INSERT INTO project_resubmissions (project_id, user_id, created_at)
+         VALUES (?, ?, UTC_TIMESTAMP())'
+    )->execute([$projectId, $userId]);
 }
 
 function revision_data(array $revision): array

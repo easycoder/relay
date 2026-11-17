@@ -71,7 +71,7 @@ $error = $error ?? '';
                         <input type="hidden" name="kind" value="project">
                         <input type="hidden" name="project_id" value="<?= (int) $project['id'] ?>">
                         <input type="hidden" name="action" value="reject">
-                        <label class="field"><span>Reason (optional)</span><input type="text" name="note" maxlength="500"></label>
+                        <label class="field"><span>Reason (shown to the owner)</span><input type="text" name="note" maxlength="500"></label>
                         <button class="button button-secondary" type="submit">Reject</button>
                     </form>
                 </div>
