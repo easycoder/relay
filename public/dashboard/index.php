@@ -51,6 +51,7 @@ $content = render_template('dashboard', [
     'updated' => isset($_GET['updated']),
     'revision' => isset($_GET['revision']),
     'switched' => isset($_GET['switched']),
+    'deleted' => isset($_GET['deleted']),
     'signoutStale' => (($_GET['signout'] ?? '') === 'stale'),
     'csrf' => csrf_token(),
     'isReviewer' => in_array($user['role'], ['admin', 'moderator'], true),

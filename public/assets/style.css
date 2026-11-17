@@ -641,3 +641,35 @@ textarea {
         gap: 0.35rem;
     }
 }
+
+/* The AI drafting block on the submission form: a copyable prompt and a small
+   file input that prefills the form from the JSON an AI returns. */
+.ai-draft summary {
+    cursor: pointer;
+    font-weight: 650;
+}
+
+.prompt-box {
+    display: block;
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    white-space: pre;
+    overflow: auto;
+    resize: vertical;
+}
+
+.import-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}

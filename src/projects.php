@@ -40,6 +40,12 @@ const SUBMIT_WINDOW_DAYS = 30;
 /** Rejections inside the window that pause an account's submissions. */
 const SUBMIT_STRIKES = 3;
 
+/** How many days before expiry an owner is warned. */
+const EXPIRY_REMINDER_DAYS = 14;
+
+/** How long an expiry link stays valid: long enough to survive a holiday. */
+const EXPIRY_LINK_MINUTES = 30 * 24 * 60;
+
 function project_status_options(): array
 {
     return [
@@ -198,6 +204,358 @@ function form_checked(array $old, string $key, string $value): string
     return in_array((string) $value, array_map('strval', $values), true) ? ' checked' : '';
 }
 
+/**
+ * Character limits per field, shared by the validator and the AI prompt so the
+ * two cannot drift apart.
+ *
+ * @return array<string, int>
+ */
+function submission_field_limits(): array
+{
+    return [
+        'title' => 200,
+        'pitch' => 300,
+        'synopsis' => 5000,
+        'brief' => 30000,
+        'revenue_model' => 120,
+        'cost_description' => 500,
+        'effort_description' => 500,
+        'licence' => 64,
+        'jurisdiction' => 64,
+        'language' => 16,
+        'timezone' => 64,
+        'repo_url' => 255,
+        'site_url' => 255,
+        'docs_url' => 255,
+        'demo_url' => 255,
+        'public_contact' => 255,
+    ];
+}
+
+/**
+ * Every field a submission carries, in the order the form asks for them.
+ *
+ * This is the single description of the shape: the AI prompt is generated from
+ * it and the JSON importer reads it, so adding a field here puts it in front of
+ * the owner's AI as well.
+ *
+ * @return array<string, array{label: string, type: string, required: bool, note: string}>
+ */
+function submission_fields(): array
+{
+    return [
+        'title' => ['label' => 'Title', 'type' => 'string', 'required' => true, 'note' => 'The project name as it should appear in the catalogue.'],
+        'pitch' => ['label' => 'One-line pitch', 'type' => 'string', 'required' => true, 'note' => 'One sentence: what it does and who it is for.'],
+        'synopsis' => ['label' => 'Synopsis', 'type' => 'text', 'required' => true, 'note' => 'A short plain-English description for someone who has never used it.'],
+        'brief' => ['label' => 'Adoption Brief', 'type' => 'markdown', 'required' => true, 'note' => 'Markdown, using the ten sections listed above.'],
+        'status' => ['label' => 'Status', 'type' => 'string', 'required' => true, 'note' => 'What the owner is looking for.'],
+        'arrangement' => ['label' => 'Arrangement', 'type' => 'string', 'required' => true, 'note' => 'How the project would change hands.'],
+        'category' => ['label' => 'Category', 'type' => 'string', 'required' => true, 'note' => 'One category slug from the list above.'],
+        'revenue_state' => ['label' => 'Revenue state', 'type' => 'string', 'required' => true, 'note' => 'Whether it earns anything today.'],
+        'revenue_model' => ['label' => 'Revenue model', 'type' => 'string', 'required' => false, 'note' => 'How money is made, if it is. Empty when there is none.'],
+        'monthly_cost' => ['label' => 'Monthly cost', 'type' => 'number', 'required' => false, 'note' => 'Running cost per month as a bare number (no currency symbol), or null.'],
+        'currency' => ['label' => 'Currency', 'type' => 'string', 'required' => false, 'note' => 'Three-letter code such as GBP, or null when there is no cost.'],
+        'cost_description' => ['label' => 'Cost description', 'type' => 'string', 'required' => false, 'note' => 'What the running cost consists of.'],
+        'effort_hours_per_month' => ['label' => 'Effort', 'type' => 'integer', 'required' => false, 'note' => 'Hours a maintainer needs each month, 0 to 1000, or null.'],
+        'effort_description' => ['label' => 'Effort description', 'type' => 'string', 'required' => false, 'note' => 'What that time goes on.'],
+        'user_scope' => ['label' => 'Users', 'type' => 'string', 'required' => true, 'note' => 'Who uses it.'],
+        'licence' => ['label' => 'Licence', 'type' => 'string', 'required' => false, 'note' => 'The licence the code is under, for example MIT.'],
+        'readiness' => ['label' => 'Readiness', 'type' => 'integer', 'required' => true, 'note' => 'One of the readiness levels above, as a number: 0 to 4.'],
+        'jurisdiction' => ['label' => 'Jurisdiction', 'type' => 'string', 'required' => false, 'note' => 'Where the owner or the obligations sit, for example GB.'],
+        'language' => ['label' => 'Language', 'type' => 'string', 'required' => false, 'note' => 'Primary language of the project, for example en.'],
+        'timezone' => ['label' => 'Timezone', 'type' => 'string', 'required' => false, 'note' => 'Where the maintainer is, for example Europe/London.'],
+        'repo_url' => ['label' => 'Repository', 'type' => 'url', 'required' => false, 'note' => 'http(s) URL of the repository, or null.'],
+        'site_url' => ['label' => 'Live site', 'type' => 'url', 'required' => false, 'note' => 'http(s) URL of the running site, or null.'],
+        'docs_url' => ['label' => 'Documentation', 'type' => 'url', 'required' => false, 'note' => 'http(s) URL of the documentation, or null.'],
+        'demo_url' => ['label' => 'Demo', 'type' => 'url', 'required' => false, 'note' => 'http(s) URL of a demo, or null.'],
+        'contact_mode' => ['label' => 'Contact mode', 'type' => 'string', 'required' => true, 'note' => 'How an adopter reaches the owner.'],
+        'public_contact' => ['label' => 'Public contact', 'type' => 'string', 'required' => false, 'note' => 'An email address or http(s) URL to publish, only when contact_mode is public.'],
+        'keywords' => ['label' => 'Keywords', 'type' => 'list of strings', 'required' => false, 'note' => 'Up to 20 short keywords, lowercase.'],
+        'skills' => ['label' => 'Skills', 'type' => 'list of strings', 'required' => false, 'note' => 'Up to 20 skills a successor needs.'],
+        'assets' => ['label' => 'Assets', 'type' => 'list of strings', 'required' => false, 'note' => 'What the owner would hand over, from the asset list above.'],
+        'obligations' => ['label' => 'Obligations', 'type' => 'list of strings', 'required' => false, 'note' => 'Up to 20 promises and duties that come with the project, one per item.'],
+        'synopsis_ai_drafted' => ['label' => 'Synopsis drafted with AI', 'type' => 'boolean', 'required' => false, 'note' => 'true if an AI drafted the synopsis and the owner has checked it.'],
+        'brief_ai_drafted' => ['label' => 'Brief drafted with AI', 'type' => 'boolean', 'required' => false, 'note' => 'true if an AI drafted the brief and the owner has checked it.'],
+    ];
+}
+
+/**
+ * @return array<int, string>
+ */
+function submission_field_keys(): array
+{
+    return array_keys(submission_fields());
+}
+
+/**
+ * Turn a decoded JSON listing into form values.
+ *
+ * Tolerant on purpose: an AI may return a comma-separated string where a list
+ * was asked for, or a boolean where a checkbox is expected. Unknown keys are
+ * dropped, and nothing is written — the result only prefills the form.
+ *
+ * @param array<string, mixed> $json
+ * @return array<string, mixed>
+ */
+function project_json_to_form(array $json): array
+{
+    $toList = static function (mixed $value): array {
+        if (is_array($value)) {
+            $items = array_map(
+                static fn ($item): string => is_scalar($item) ? trim((string) $item) : '',
+                $value
+            );
+        } elseif (is_scalar($value)) {
+            $items = array_map('trim', explode(',', (string) $value));
+        } else {
+            $items = [];
+        }
+
+        return array_values(array_filter($items, static fn (string $item): bool => $item !== ''));
+    };
+
+    $form = [];
+
+    foreach (submission_field_keys() as $key) {
+        $value = $json[$key] ?? '';
+
+        if (in_array($key, ['keywords', 'skills', 'assets', 'obligations'], true)) {
+            $form[$key] = $value;
+            continue;
+        }
+
+        if (is_bool($value)) {
+            $form[$key] = $value ? '1' : '';
+            continue;
+        }
+
+        $form[$key] = is_scalar($value) ? trim((string) $value) : '';
+    }
+
+    $form['keywords'] = implode(', ', $toList($form['keywords']));
+    $form['skills'] = implode(', ', $toList($form['skills']));
+    $form['obligations'] = implode("\n", $toList($form['obligations']));
+    $form['assets'] = array_values(array_intersect(
+        array_keys(asset_options()),
+        array_map('strval', $toList($json['assets'] ?? []))
+    ));
+    $form['synopsis_ai_drafted'] = !empty($json['synopsis_ai_drafted']) ? '1' : '';
+    $form['brief_ai_drafted'] = !empty($json['brief_ai_drafted']) ? '1' : '';
+
+    return $form;
+}
+
+/**
+ * Take the brief from an upload or a compressed field, when the form sent one.
+ *
+ * A long, code-filled brief can make a host's web application firewall reject
+ * the whole POST before PHP runs: the content looks like an attack to a pattern
+ * matcher. There are two escapes, tried in order:
+ *
+ *  1. `brief_file` — the brief as a file part, which is how the import sends the
+ *     same text successfully on this host;
+ *  2. `brief_gz` — the brief gzipped and base64-encoded by the browser, which
+ *     has no text at all for a pattern matcher to score.
+ *
+ * With neither, the textarea posts as normal and nothing here changes.
+ *
+ * @param array<string, mixed> $files Usually $_FILES.
+ * @param array<string, mixed> $post  Usually $_POST; modified in place.
+ */
+function absorb_brief_upload(array &$post, array $files, int $maxBytes = 131072): void
+{
+    $file = $files['brief_file'] ?? null;
+
+    if (is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $tmp = (string) ($file['tmp_name'] ?? '');
+
+        if ($tmp !== '' && is_file($tmp) && (int) ($file['size'] ?? 0) <= $maxBytes) {
+            $text = file_get_contents($tmp);
+
+            if (is_string($text) && $text !== '') {
+                $post['brief'] = $text;
+
+                return;
+            }
+        }
+    }
+
+    $encoded = $post['brief_gz'] ?? '';
+
+    if (!is_string($encoded) || $encoded === '' || !function_exists('gzdecode')) {
+        return;
+    }
+
+    $raw = base64_decode($encoded, true);
+
+    if ($raw === false || strlen($raw) > $maxBytes) {
+        return;
+    }
+
+    $text = @gzdecode($raw);
+
+    if (is_string($text) && $text !== '') {
+        $post['brief'] = $text;
+    }
+}
+
+/**
+ * Decode a listing from the text an AI produced.
+ *
+ * Accepts a Markdown code fence because AI answers often arrive inside one.
+ * Throws rather than returning null so the caller can say what was wrong.
+ *
+ * @return array<string, mixed>
+ * @throws InvalidArgumentException
+ */
+function listing_from_json_text(string $text): array
+{
+    $text = trim($text);
+
+    if ($text === '') {
+        throw new InvalidArgumentException('There was nothing to import.');
+    }
+
+    if (str_starts_with($text, '```')) {
+        $text = (string) preg_replace('/^```[a-zA-Z]*\s*/', '', $text);
+        $text = (string) preg_replace('/```\s*$/', '', $text);
+        $text = trim($text);
+    }
+
+    $json = json_decode($text, true);
+
+    if (!is_array($json) || array_is_list($json)) {
+        throw new InvalidArgumentException('That is not a JSON object.');
+    }
+
+    return $json;
+}
+
+/**
+ * The prompt an owner pastes into their AI, generated from the field
+ * definitions so that a change to the listing shape reaches the prompt.
+ *
+ * @param array<string, string> $categories Category slug => name, from the database.
+ */
+function submission_prompt(array $categories = []): string
+{
+    $limits = submission_field_limits();
+    $fieldLines = [];
+
+    foreach (submission_fields() as $key => $field) {
+        $limit = isset($limits[$key]) ? ', max ' . $limits[$key] . ' characters' : '';
+        $fieldLines[] = '- ' . $key . ' (' . $field['type'] . ', '
+            . ($field['required'] ? 'required' : 'optional') . $limit . '): ' . $field['note'];
+    }
+
+    $optionLines = [];
+
+    foreach ([
+        'status' => project_status_options(),
+        'arrangement' => arrangement_options(),
+        'revenue_state' => revenue_state_options(),
+        'user_scope' => user_scope_options(),
+        'contact_mode' => contact_mode_options(),
+        'assets' => asset_options(),
+        'readiness' => readiness_options(),
+    ] as $key => $options) {
+        $optionLines[] = '- ' . $key . ': ' . implode(' | ', array_keys($options));
+    }
+
+    $categoryLines = [];
+
+    foreach ($categories as $slug => $name) {
+        $categoryLines[] = '- ' . $slug . ' (' . $name . ')';
+    }
+
+    $example = [
+        'title' => 'Example project',
+        'pitch' => 'One sentence on what it does and who it is for.',
+        'synopsis' => 'A short description for someone who has never used it.',
+        'brief' => "## What it is\n\nOne paragraph a non-user would understand.\n\n## Who uses it\n\nDescribe the users, or say that there are none yet.\n",
+        'status' => 'seeking-successor',
+        'arrangement' => 'gift',
+        'category' => (string) (array_key_first($categories) ?: 'developer-tools'),
+        'revenue_state' => 'costs-only',
+        'revenue_model' => '',
+        'monthly_cost' => 12,
+        'currency' => 'GBP',
+        'cost_description' => 'Hosting and mail.',
+        'effort_hours_per_month' => 4,
+        'effort_description' => 'Support mail and keeping dependencies current.',
+        'user_scope' => 'individuals',
+        'licence' => 'MIT',
+        'readiness' => 1,
+        'jurisdiction' => 'GB',
+        'language' => 'en',
+        'timezone' => 'Europe/London',
+        'repo_url' => 'https://example.com/repo',
+        'site_url' => null,
+        'docs_url' => null,
+        'demo_url' => null,
+        'contact_mode' => 'via-site',
+        'public_contact' => '',
+        'keywords' => ['example', 'php'],
+        'skills' => ['php', 'mysql'],
+        'assets' => ['repo', 'domain'],
+        'obligations' => ['Keep the site running.'],
+        'synopsis_ai_drafted' => true,
+        'brief_ai_drafted' => true,
+    ];
+
+    $lines = [
+        'You are helping the owner of a software project write a listing for Relay.',
+        '',
+        'Relay is a free, open-source registry for projects that need a next maintainer.',
+        'An adopter, often working with an AI agent, reads the listing to decide whether to',
+        'take the project on. Accuracy matters more than persuasion: a listing that',
+        'overstates what is there wastes everyones time, and the owner has to confirm every',
+        'claim before a person reviews it.',
+        '',
+        'How to work',
+        '- Ask the owner about anything you do not know. Never invent figures, dates,',
+        '  licences, URLs, obligations or history.',
+        '- Write in plain English, in the owners voice. No marketing, no superlatives.',
+        '- The brief is Markdown with these ten sections, in this order:',
+        '  1. What it is - one paragraph a non-user would understand.',
+        '  2. Who uses it - customers, installers, internal users, nobody yet.',
+        '  3. Why it exists - the problem, the history, what would be lost.',
+        '  4. How it works - architecture in plain language, naming the files that matter.',
+        '  5. How to run, test and deploy it - commands, environments, gotchas.',
+        '  6. The estate - repository, domain, hosting, broker, mail, data, trademarks,',
+        '     contracts.',
+        '  7. The economics - revenue, costs, pricing, who pays, what is owed.',
+        '  8. The obligations - support expectations, regulations, customer data, promises.',
+        '  9. The state of play - open issues, known bugs, planned work, technical debt.',
+        '  10. The first 30 days - what a new maintainer should do, in order.',
+        '- Answer with ONE JSON object and nothing else: no commentary, no code fences.',
+        '',
+        'Fields (JSON key, type, required, limit, what goes in it)',
+        implode("\n", $fieldLines),
+        '',
+        'Allowed values',
+        implode("\n", $optionLines),
+        '',
+        'Categories (use the slug, not the name)',
+        implode("\n", $categoryLines),
+        '',
+        'Readiness levels',
+        '  0 Listed, 1 Documented, 2 Agent-ready, 3 Handover-tested, 4 Transferred.',
+        '',
+        'Rules for the values',
+        '- Use null for an optional field the owner cannot answer, and "" for an empty text field.',
+        '- monthly_cost and effort_hours_per_month are numbers or null, never strings with units.',
+        '- keywords, skills, assets and obligations are arrays of strings, even when empty.',
+        '- assets must use the asset keys listed above.',
+        '- Set synopsis_ai_drafted and brief_ai_drafted to true when you drafted those parts.',
+        '',
+        'Return exactly this shape:',
+        json_encode($example, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+    ];
+
+    return implode("\n", $lines);
+}
+
 function validate_project_submission(array $input, PDO $pdo): array
 {
     $assetsInput = array_values(array_filter((array) ($input['assets'] ?? []), 'is_scalar'));
@@ -295,24 +653,7 @@ function validate_project_submission(array $input, PDO $pdo): array
         $errors['category'] = 'Choose a category.';
     }
 
-    $limits = [
-        'title' => 200,
-        'pitch' => 300,
-        'synopsis' => 5000,
-        'brief' => 30000,
-        'revenue_model' => 120,
-        'cost_description' => 500,
-        'effort_description' => 500,
-        'licence' => 64,
-        'jurisdiction' => 64,
-        'language' => 16,
-        'timezone' => 64,
-        'repo_url' => 255,
-        'site_url' => 255,
-        'docs_url' => 255,
-        'demo_url' => 255,
-        'public_contact' => 255,
-    ];
+    $limits = submission_field_limits();
 
     foreach ($limits as $field => $max) {
         if (strlen($data[$field]) > $max) {
@@ -664,6 +1005,152 @@ function pending_revision(PDO $pdo, int $projectId): ?array
     $row = $stmt->fetch();
 
     return $row === false ? null : $row;
+}
+
+/**
+ * Approved listings that expire inside the window and have not been reminded
+ * about this expiry yet.
+ *
+ * The reminder is tied to the current `expires_at`, so a reconfirmation (which
+ * moves it) makes the listing eligible again for the next cycle, while a cron
+ * run repeated in the same cycle stays silent.
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function projects_due_expiry_reminder(PDO $pdo, int $days = EXPIRY_REMINDER_DAYS): array
+{
+    $days = max(1, $days);
+
+    $stmt = $pdo->prepare(
+        "SELECT p.id, p.slug, p.title, p.expires_at,
+                u.email AS owner_email, u.display_name AS owner_name
+         FROM projects p
+         JOIN users u ON u.id = p.owner_id
+         WHERE p.review_status = 'approved'
+           AND p.expires_at IS NOT NULL
+           AND p.expires_at > UTC_TIMESTAMP()
+           AND p.expires_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL {$days} DAY)
+           AND NOT EXISTS (
+               SELECT 1 FROM project_expiry_reminders r
+               WHERE r.project_id = p.id AND r.expires_at = p.expires_at
+           )
+         ORDER BY p.expires_at ASC, p.id ASC"
+    );
+    $stmt->execute();
+
+    return $stmt->fetchAll();
+}
+
+/**
+ * Record that the reminder for this expiry has gone out.
+ */
+function mark_expiry_reminder_sent(PDO $pdo, int $projectId, string $expiresAt): void
+{
+    $pdo->prepare(
+        'INSERT IGNORE INTO project_expiry_reminders (project_id, expires_at, sent_at)
+         VALUES (?, ?, UTC_TIMESTAMP())'
+    )->execute([$projectId, $expiresAt]);
+}
+
+function reconfirm_url(string $rawToken): string
+{
+    return site_url() . '/reconfirm/?token=' . urlencode($rawToken);
+}
+
+/**
+ * Push a published listing's expiry out six months and mark it confirmed.
+ */
+function reconfirm_project(PDO $pdo, int $projectId, ?int $actorUserId = null): void
+{
+    $stmt = $pdo->prepare(
+        "UPDATE projects
+         SET expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 6 MONTH),
+             confirmed_at = UTC_TIMESTAMP()
+         WHERE id = ? AND review_status = 'approved'"
+    );
+    $stmt->execute([$projectId]);
+
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('That listing is not published, so it cannot be reconfirmed.');
+    }
+
+    $pdo->prepare(
+        "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
+         VALUES (?, 'project.reconfirmed', 'project', ?, ?, UTC_TIMESTAMP())"
+    )->execute([$actorUserId, $projectId, 'Reconfirmed from the expiry reminder']);
+}
+
+/**
+ * Why a listing may not be deleted, in the words the owner will read.
+ *
+ * Deleting cascades to the listing's relations, revisions and resubmissions.
+ * Interest rows cascade too, which is exactly why they are a blocker: someone
+ * else's expression of interest is not the owner's to erase while they are
+ * acting on it.
+ *
+ * @return array<int, string>
+ */
+function project_delete_blockers(PDO $pdo, int $projectId): array
+{
+    $blockers = [];
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM interests WHERE project_id = ?');
+    $stmt->execute([$projectId]);
+    $interests = (int) $stmt->fetchColumn();
+
+    if ($interests === 1) {
+        $blockers[] = 'One person has expressed interest in this listing.';
+    } elseif ($interests > 1) {
+        $blockers[] = $interests . ' people have expressed interest in this listing.';
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM project_revisions WHERE project_id = ? AND review_status = 'pending'"
+    );
+    $stmt->execute([$projectId]);
+
+    if ((int) $stmt->fetchColumn() > 0) {
+        $blockers[] = 'A revision is waiting for review.';
+    }
+
+    return $blockers;
+}
+
+/**
+ * Delete a listing and everything hanging off it, leaving the audit trail.
+ */
+function delete_project(PDO $pdo, int $projectId, ?int $actorUserId = null): void
+{
+    $stmt = $pdo->prepare('SELECT slug, title FROM projects WHERE id = ?');
+    $stmt->execute([$projectId]);
+    $project = $stmt->fetch();
+
+    if ($project === false) {
+        throw new RuntimeException('That listing no longer exists.');
+    }
+
+    $pdo->beginTransaction();
+
+    try {
+        $pdo->prepare(
+            "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
+             VALUES (?, 'project.deleted', 'project', ?, ?, UTC_TIMESTAMP())"
+        )->execute([
+            $actorUserId,
+            $projectId,
+            'Deleted "' . $project['title'] . '" (/' . $project['slug'] . '/)',
+        ]);
+
+        $pdo->prepare('DELETE FROM projects WHERE id = ?')->execute([$projectId]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $e;
+    }
 }
 
 /**

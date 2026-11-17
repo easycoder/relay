@@ -27,5 +27,9 @@ return [
 
     'mail' => [
         'from' => 'no-reply@relay.eclecity.net',
+
+        // Where operator notifications go: a listing or revision entering the
+        // review queue. Subjects all start "Relay:". Leave empty to send none.
+        'admin' => 'hello@relay.eclecity.net',
     ],
 ];

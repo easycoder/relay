@@ -111,6 +111,62 @@ function relay_config(): array
  * The connection is created once per process; the build script and any web
  * entry point can call this without passing the config around.
  */
+/**
+ * Append a line to storage/error.log.
+ *
+ * Apache's error log on this host does not carry PHP errors, and a bare 500
+ * tells nobody anything, so failures are written here as well as to error_log().
+ * The .log extension is denied by .htaccess, so the file is not web-readable.
+ *
+ * Never throws: logging must not be the reason a request fails.
+ */
+function app_log(string $message): void
+{
+    static $file = null;
+
+    if ($file === null) {
+        $dir = __DIR__ . '/storage';
+
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            // The repository may not be writable from the PHP worker; the
+            // system temporary directory always is, so keep logging there.
+            $file = rtrim(sys_get_temp_dir(), '/') . '/relay-error.log';
+        } else {
+            $file = $dir . '/error.log';
+        }
+    }
+
+    $where = ($_SERVER['REQUEST_METHOD'] ?? '-') . ' ' . ($_SERVER['REQUEST_URI'] ?? '-');
+    $line = gmdate('Y-m-d H:i:s') . ' UTC ' . $where . ' ' . $message;
+
+    $written = @file_put_contents($file, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+
+    // If the file cannot be written (permissions, missing directory), fall back
+    // to the host's log rather than losing the message entirely.
+    if ($written === false) {
+        error_log('Relay: ' . $line . ' (could not write ' . $file . ')');
+    }
+}
+
+// Record any fatal that no try/catch caught. Without this a blank 500 leaves
+// nothing behind at all: Apache's log has no PHP errors on this host, and the
+// per-page handlers only cover the paths they wrap.
+register_shutdown_function(static function (): void {
+    $error = error_get_last();
+
+    if ($error === null) {
+        return;
+    }
+
+    $fatal = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR];
+
+    if (!in_array((int) ($error['type'] ?? 0), $fatal, true)) {
+        return;
+    }
+
+    app_log('fatal: ' . $error['message'] . ' in ' . $error['file'] . ':' . $error['line']);
+});
+
 function db(): PDO
 {
     static $pdo = null;

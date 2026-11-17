@@ -48,6 +48,8 @@ mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0004_add_review_note_and_resubmissions.sql
 mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0005_add_magic_link_display_name.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0006_add_expiry_reminders.sql
 ```
 
 `0001` adds `projects.review_status` (`pending`, `approved`, `rejected`).
@@ -66,6 +68,10 @@ listing.
 `0005` adds `magic_links.display_name`, so a sign-in link carries the name a
 new account should get. Accounts are created when a link is used, not when one
 is requested.
+
+`0006` adds `project_expiry_reminders`, one row per reminder sent, so a cron
+run cannot send the same one twice. Run `php scripts/expiry-reminders.php` on a
+schedule (see the README).
 
 ## Load the first listing
 

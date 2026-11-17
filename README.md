@@ -120,6 +120,25 @@ The header shows the signed-in name and email on every page. Interactive pages
 render it server-side; the pre-rendered catalogue pages fetch `/session.php`
 after load, so they remain usable without JavaScript.
 
+## Drafting a listing with an AI
+
+`/submit/` opens with a **Draft this with an AI, then import it** block. The
+prompt inside it is generated from `submission_fields()` and
+`submission_field_limits()` in `src/projects.php` — every field, its type,
+whether it is required, its character limit, the allowed values (status,
+arrangement, revenue state, user scope, contact mode, assets, readiness), the
+live category list, and the ten Adoption Brief sections. Add or change a field
+there and the prompt follows, so an AI never works from a stale shape.
+
+The owner copies the prompt into their AI, gets back one JSON object, saves it
+and imports it with the file input. The import does not submit anything: it
+validates the JSON with the same validator the form uses, then prefills the form
+so the owner can correct anything and tick the confirmation. Booleans map to the
+AI checkboxes, lists accept either arrays or comma-separated strings, unknown
+assets are dropped, and a Markdown code fence around the JSON is tolerated.
+`synopsis_ai_drafted` and `brief_ai_drafted` are advisory — the owner confirms
+them on the form.
+
 ## Human review
 
 A listing is not published until a person approves it. `projects.review_status`
@@ -143,6 +162,12 @@ php scripts/review.php list
 php scripts/review.php approve <slug>
 php scripts/review.php reject <slug> --note "reason"
 ```
+
+An operator address in the config (`mail.admin`) is emailed when the queue
+grows: a new listing, a revision on a live listing, or a listing edited back
+into the queue. One message per event, subject prefixed `Relay:`, and never
+when the operator is the person who acted — so a filter can divert them and a
+busy day cannot bury an inbox. Leave the key out to send none.
 
 The web queue writes an `audit_log` entry, sets `published_at` on first
 approval and gives the listing a six-month expiry. A rejection reason is also
@@ -183,6 +208,16 @@ the queue. Edits to an approved listing are revisions and are not counted.
 `RESUBMIT_LIMIT` and `RESUBMIT_WINDOW_DAYS` in `src/projects.php` are the
 knobs.
 
+### Deleting a listing
+
+The edit page ends with a **Delete this listing** button. It is only offered
+when nobody is interacting with the listing: any expression of interest (in any
+state), or a revision waiting for review, blocks it, and the page says which.
+Deleting removes the listing, its revisions and its resubmissions; the
+`audit_log` entry (`project.deleted`, with the title and slug) stays. Run a
+build afterwards — `scripts/build.php` now prunes `public/projects/<slug>/` for
+anything it no longer publishes, so the page goes with it.
+
 ## Limits on submissions
 
 Two things are scarce — mail and reviewer time — so both are bounded per
@@ -216,6 +251,38 @@ submission route.
 Apply `db/migrations/0002_add_project_revisions.sql` before deploying the edit
 flow. The live page is only regenerated after the revision is approved and the
 build runs.
+
+## Expiry and reconfirmation
+
+A published listing carries a six-month expiry (`projects.expires_at`, set on
+approval and renewed when a revision is approved). The build only includes rows
+that have not expired, so an unrenewed listing leaves the catalogue quietly —
+which is why owners get a warning first.
+
+```sh
+php scripts/expiry-reminders.php            # remind about the next 14 days
+php scripts/expiry-reminders.php --days=30  # a wider window
+php scripts/expiry-reminders.php --dry-run  # say who would be emailed
+```
+
+Run it once a day from cron, for example:
+
+```cron
+17 7 * * * cd /home/eclecity/relay.eclecity.net && php scripts/expiry-reminders.php >> /home/eclecity/expiry.log 2>&1
+```
+
+Each run emails the owner of every approved listing that expires inside the
+window and has not been reminded about *this* expiry; `project_expiry_reminders`
+records the send, so a repeated run is silent, and a reconfirmation (which moves
+the expiry) makes the listing eligible again. The email carries a link to
+`/reconfirm/?token=…`: single use, valid 30 days, no sign-in needed, because
+reading the link proves the owner still has the address. Using it pushes the
+expiry out six months, marks the listing confirmed and audits
+`project.reconfirmed`. The dashboard shows the same state — "Expires in 9 days"
+inside three weeks, "Expired on …" once it has gone.
+
+Mail is best-effort: a failure leaves the reminder unrecorded so the next run
+tries again, and the dashboard line is the fallback.
 
 ## Expressions of interest
 

@@ -239,6 +239,22 @@ CREATE TABLE IF NOT EXISTS project_resubmissions (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per expiry reminder sent for a listing. The unique key stops a cron
+-- run sending the same reminder twice; a reconfirmation moves expires_at, so
+-- the listing becomes eligible again next time round.
+CREATE TABLE IF NOT EXISTS project_expiry_reminders (
+    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    project_id INT UNSIGNED NOT NULL,
+    expires_at DATETIME     NOT NULL, -- the expiry this reminder was about
+    sent_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_expiry_reminder (project_id, expires_at),
+    KEY idx_expiry_reminders_sent (sent_at),
+    CONSTRAINT fk_expiry_reminder_project
+        FOREIGN KEY (project_id) REFERENCES projects (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------------
 -- Expressions of interest
 -- ---------------------------------------------------------------------------

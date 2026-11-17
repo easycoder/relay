@@ -10,6 +10,9 @@ deploy.conf
 *.eclecity.net.txt
 !*.eclecity.net.txt.example
 
+# Application log (storage/error.log); written on the server, never committed
+/storage/
+
 # Local tooling
 /various/
 /vendor/

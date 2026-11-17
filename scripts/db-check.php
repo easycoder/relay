@@ -113,6 +113,36 @@ if ($tables > 0) {
     } else {
         echo "Review:   migration 0001 not applied\n";
     }
+
+    // Say plainly which migrations have landed: a missing column or table is
+    // the usual reason a page fails after a deploy.
+    $checks = [
+        '0001 projects.review_status' => ["SHOW COLUMNS FROM projects LIKE 'review_status'", 'column'],
+        '0004 projects.review_note' => ["SHOW COLUMNS FROM projects LIKE 'review_note'", 'column'],
+        '0005 magic_links.display_name' => ["SHOW COLUMNS FROM magic_links LIKE 'display_name'", 'column'],
+    ];
+
+    foreach ($checks as $label => [$statement, $kind]) {
+        $row = $pdo->query($statement)->fetch();
+        printf("Schema:   %s %s\n", $label, $row === false ? 'MISSING' : 'present');
+    }
+
+    $tablesExpected = [
+        'interests' => '0003',
+        'project_revisions' => '0002',
+        'project_resubmissions' => '0004',
+        'project_expiry_reminders' => '0006',
+    ];
+
+    $existing = [];
+
+    foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $table) {
+        $existing[(string) $table] = true;
+    }
+
+    foreach ($tablesExpected as $table => $migration) {
+        printf("Schema:   %s (%s) %s\n", $table, $migration, isset($existing[$table]) ? 'present' : 'MISSING');
+    }
 }
 
 foreach ($engines as $engine => $count) {

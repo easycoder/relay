@@ -146,6 +146,29 @@ foreach ($projects as $project) {
     );
 }
 
+// Remove pages for listings that are no longer published — deleted, rejected,
+// archived or expired — so a stale page cannot linger in the catalogue after
+// the row it describes has gone.
+$builtSlugs = [];
+
+foreach ($projects as $project) {
+    $builtSlugs[(string) $project['slug']] = true;
+}
+
+foreach (glob($public . '/projects/*', GLOB_ONLYDIR) ?: [] as $dir) {
+    $slug = basename($dir);
+
+    if (isset($builtSlugs[$slug])) {
+        continue;
+    }
+
+    @unlink($dir . '/index.html');
+
+    if (@rmdir($dir)) {
+        echo 'Removed ' . $dir . PHP_EOL;
+    }
+}
+
 $guideCards = [];
 
 foreach ($guideMeta as $guideSlug => $guide) {

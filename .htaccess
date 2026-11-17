@@ -7,7 +7,7 @@
 
 # Never serve source, admin scripts, database files or documentation.
 RedirectMatch 404 ^/\.git(/|$)
-RedirectMatch 404 ^/(db|scripts|src|templates|vendor|node_modules|content)(/|$)
+RedirectMatch 404 ^/(db|scripts|src|templates|vendor|node_modules|content|storage)(/|$)
 
 <FilesMatch "^\.">
     Require all denied

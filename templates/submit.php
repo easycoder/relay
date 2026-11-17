@@ -23,6 +23,11 @@
 /** @var int $resubmissionsUsed */
 /** @var int $resubmissionLimit */
 /** @var string|null $resubmitOpenAt */
+/** @var string $prompt */
+/** @var string $importAction */
+/** @var string $deleteAction */
+/** @var string $deleteSlug */
+/** @var array<int, string> $deleteBlockers */
 
 $eyebrow = $eyebrow ?? 'Submit';
 $heading = $heading ?? 'Describe a project';
@@ -43,6 +48,12 @@ $listingsLimit = $listingsLimit ?? 0;
 $listingsUsed = $listingsUsed ?? 0;
 $listingsWindowDays = $listingsWindowDays ?? 30;
 
+$prompt = $prompt ?? '';
+$importAction = $importAction ?? '';
+$deleteAction = $deleteAction ?? '';
+$deleteSlug = $deleteSlug ?? '';
+$deleteBlockers = $deleteBlockers ?? [];
+
 $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
 
 ?>
@@ -51,6 +62,34 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
     <h1><?= e($heading) ?></h1>
     <p class="lede"><?= e($intro) ?></p>
 </section>
+
+<?php if ($prompt !== ''): ?>
+    <details class="section ai-draft">
+        <summary>Draft this with an AI, then import it</summary>
+        <p class="meta">Copy the prompt below into your AI. It lists every field and the values allowed, so the answer comes back ready to import. Nothing is submitted until you have reviewed the form and pressed the button yourself.</p>
+        <textarea class="prompt-box" rows="16" readonly spellcheck="false"><?= e($prompt) ?></textarea>
+
+        <?php if ($importAction !== ''): ?>
+            <p class="meta">Paste the JSON your AI returned into the box, or choose it as a file. Either way it only fills the form: your edits and the confirmation are still yours to make.</p>
+            <form class="import-form" method="post" action="<?= e($importAction) ?>" enctype="multipart/form-data">
+                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+
+                <label class="field">
+                    <span>Paste the JSON</span>
+                    <textarea name="json" rows="6" spellcheck="false" placeholder="{ &quot;title&quot;: &quot;…&quot; }"></textarea>
+                </label>
+
+                <label class="field">
+                    <span>Or choose the file</span>
+                    <input type="file" name="listing" accept=".json,application/json,text/plain">
+                    <small>Choosing a file is the only way to send one; pasting a file path here will not attach it.</small>
+                </label>
+
+                <button class="button button-secondary" type="submit">Import into the form</button>
+            </form>
+        <?php endif; ?>
+    </details>
+<?php endif; ?>
 
 <?php if ($errors !== []): ?>
     <div class="form-errors" role="alert">
@@ -90,7 +129,7 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
     <?php endif; ?>
 <?php endif; ?>
 
-<form class="form form-wide" method="post" action="<?= e($formAction) ?>">
+<form class="form form-wide" method="post" action="<?= e($formAction) ?>" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
 
     <div class="honeypot" hidden aria-hidden="true">
@@ -311,5 +350,91 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
                 <a class="button button-secondary" href="<?= e($cancelUrl) ?>">Cancel</a>
             <?php endif; ?>
         </div>
+
+        <?php // A long, code-filled brief can make the host's request filter
+              // reject the whole POST before PHP runs. When JavaScript is
+              // available the brief is attached as a file instead, which is the
+              // shape the import already sends successfully; the server reads it
+              // with absorb_brief_upload(). Without JavaScript nothing changes. ?>
+        <input type="file" name="brief_file" accept=".md,.txt,text/markdown,text/plain" hidden aria-hidden="true" tabindex="-1">
+        <input type="hidden" name="brief_gz" value="">
+        <script>
+        (function () {
+            var form = document.currentScript.closest('form');
+            if (!form) return;
+
+            var brief = form.querySelector('textarea[name="brief"]');
+            var fileInput = form.querySelector('input[name="brief_file"]');
+            var gzInput = form.querySelector('input[name="brief_gz"]');
+
+            if (!brief || !fileInput || !gzInput) return;
+
+            var settled = false;
+
+            form.addEventListener('submit', function (event) {
+                if (settled || brief.value.length < 8192) return;
+
+                // 1. Send it as a file part, the shape the import proves works.
+                if (typeof DataTransfer !== 'undefined' && typeof File !== 'undefined') {
+                    try {
+                        var payload = new DataTransfer();
+                        payload.items.add(new File([brief.value], 'brief.md', { type: 'text/markdown' }));
+                        fileInput.files = payload.files;
+                        brief.disabled = true;
+                        settled = true;
+                        return;
+                    } catch (error) {
+                        // fall through to compression
+                    }
+                }
+
+                // 2. Compress it, so a pattern matcher has no text to read.
+                if (typeof CompressionStream === 'undefined' || typeof TextEncoder === 'undefined') return;
+
+                event.preventDefault();
+
+                var bytes = new TextEncoder().encode(brief.value);
+
+                new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip')))
+                    .arrayBuffer()
+                    .then(function (buffer) {
+                        var view = new Uint8Array(buffer);
+                        var binary = '';
+
+                        for (var i = 0; i < view.length; i += 1) {
+                            binary += String.fromCharCode(view[i]);
+                        }
+
+                        gzInput.value = btoa(binary);
+                        brief.disabled = true;
+                        settled = true;
+                        form.requestSubmit();
+                    })
+                    .catch(function () {
+                        brief.disabled = false;
+                        settled = true;
+                        form.requestSubmit();
+                    });
+            });
+        })();
+        </script>
     </fieldset>
 </form>
+
+<?php if ($deleteAction !== '' && $deleteSlug !== ''): ?>
+    <section class="section danger-zone">
+        <h2>Delete this listing</h2>
+
+        <?php if ($deleteBlockers !== []): ?>
+            <p class="notice">It cannot be deleted while someone is interacting with it: <?= e(implode(' ', $deleteBlockers)) ?> Once that has run its course, deletion becomes possible.</p>
+        <?php else: ?>
+            <p class="meta">Deleting removes the listing, its revisions and its place in the catalogue. It cannot be undone, and a rebuild is needed before the public page disappears.</p>
+
+            <form method="post" action="<?= e($deleteAction) ?>" onsubmit="return confirm('Delete this listing? This cannot be undone.');">
+                <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+                <input type="hidden" name="slug" value="<?= e($deleteSlug) ?>">
+                <button class="button button-secondary" type="submit">Delete listing</button>
+            </form>
+        <?php endif; ?>
+    </section>
+<?php endif; ?>

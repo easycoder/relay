@@ -258,6 +258,24 @@ function format_date(?string $value): string
     }
 }
 
+/**
+ * Whole days until a stored UTC date: negative once it has passed.
+ */
+function days_until(?string $value): ?int
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    $timestamp = strtotime($value . ' UTC');
+
+    if ($timestamp === false) {
+        return null;
+    }
+
+    return (int) floor(($timestamp - time()) / 86400);
+}
+
 function format_money(mixed $amount, ?string $currency): string
 {
     if ($amount === null || $amount === '') {

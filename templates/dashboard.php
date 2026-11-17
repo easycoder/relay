@@ -6,6 +6,7 @@
 /** @var bool $updated */
 /** @var bool $revision */
 /** @var bool $switched */
+/** @var bool $deleted */
 /** @var bool $signoutStale */
 /** @var string $csrf */
 /** @var bool $isReviewer */
@@ -38,6 +39,10 @@ $accountCount = $accountCount ?? 0;
 
 <?php if (!empty($switched)): ?>
     <p class="notice">You are now signed in as <?= e($user['display_name']) ?> (<?= e($user['email']) ?>).</p>
+<?php endif; ?>
+
+<?php if (!empty($deleted)): ?>
+    <p class="notice">The listing has been deleted. Run a build to remove its public page from the catalogue.</p>
 <?php endif; ?>
 
 <?php if (!empty($signoutStale)): ?>
@@ -86,6 +91,20 @@ $accountCount = $accountCount ?? 0;
                 </p>
                 <h3><a href="<?= e($projectUrl) ?>"><?= e($project['title']) ?></a></h3>
                 <p class="card-meta">Submitted <?= e(format_date($project['created_at'])) ?> · <a href="/edit/?slug=<?= e($project['slug']) ?>"><?= $project['review_status'] === 'rejected' ? 'Edit and resubmit' : 'Edit' ?></a></p>
+                <?php if ($project['review_status'] === 'approved' && !empty($project['expires_at'])): ?>
+                    <?php $daysLeft = days_until((string) $project['expires_at']); ?>
+                    <p class="meta">
+                        <?php if ($daysLeft === null): ?>
+                            Expires <?= e(format_date($project['expires_at'])) ?>.
+                        <?php elseif ($daysLeft < 0): ?>
+                            Expired on <?= e(format_date($project['expires_at'])) ?>. It is out of the catalogue; edit and resubmit to bring it back.
+                        <?php elseif ($daysLeft <= 21): ?>
+                            Expires in <?= (int) $daysLeft ?> days, on <?= e(format_date($project['expires_at'])) ?> — reconfirm from the reminder email to keep it published.
+                        <?php else: ?>
+                            Published until <?= e(format_date($project['expires_at'])) ?>.
+                        <?php endif; ?>
+                    </p>
+                <?php endif; ?>
                 <?php if ($project['review_status'] === 'rejected'): ?>
                     <?php if (!empty($project['review_note'])): ?>
                         <p class="meta">Reviewer's reason: <?= e($project['review_note']) ?></p>

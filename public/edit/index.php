@@ -67,6 +67,8 @@ $old = $hasPendingRevision
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    absorb_brief_upload($_POST, $_FILES);
+
     $csrf = (string) ($_POST['csrf'] ?? '');
 
     if (!verify_csrf($csrf)) {
@@ -110,6 +112,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $audit->execute([$user['id'], $project['id'], 'Revision submitted via /edit/']);
 
                     $pdo->commit();
+
+                    notify_admin(
+                        'Revision awaiting review — ' . $project['title'],
+                        "An owner has proposed changes to a live listing.\n\n"
+                        . 'Title: ' . $project['title'] . "\n"
+                        . 'Proposed by: ' . $user['display_name'] . ' <' . $user['email'] . ">\n\n"
+                        . "The live page is unchanged until the revision is approved.\n\n"
+                        . 'Review it: ' . site_url() . "/review/\n",
+                        (string) $user['email']
+                    );
+
                     redirect('/dashboard/?revision=1');
                 }
 
@@ -134,6 +147,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 $pdo->commit();
+
+                notify_admin(
+                    'Listing resubmitted for review — ' . $project['title'],
+                    "A listing has been edited and has returned to the review queue.\n\n"
+                    . 'Title: ' . $project['title'] . "\n"
+                    . 'Edited by: ' . $user['display_name'] . ' <' . $user['email'] . ">\n\n"
+                    . 'Review it: ' . site_url() . "/review/\n",
+                    (string) $user['email']
+                );
+
                 redirect('/dashboard/?updated=1');
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
@@ -154,6 +177,10 @@ if ($isLive && $hasPendingRevision) {
     $notice = 'This listing was rejected. Everything you entered is still here: change what you need and save, and it goes back into the review queue as a fresh submission.';
 } else {
     $notice = 'This listing is not public yet. Saving updates it and returns it to the review queue.';
+}
+
+if (($_GET['delete'] ?? '') === 'stale') {
+    $notice = 'The delete request was out of date, so nothing was deleted. Try again.';
 }
 
 $content = render_template('submit', [
@@ -185,6 +212,9 @@ $content = render_template('submit', [
     'resubmitOpenAt' => $resubmitOpenAt,
     'submissionPauseUntil' => $submissionPauseUntil,
     'submissionStrikes' => SUBMIT_STRIKES,
+    'deleteAction' => '/delete/',
+    'deleteSlug' => (string) $project['slug'],
+    'deleteBlockers' => project_delete_blockers($pdo, (int) $project['id']),
     'cancelUrl' => '/dashboard/',
 ]);
 

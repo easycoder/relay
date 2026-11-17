@@ -605,30 +605,40 @@ function destroy_session(): void
 }
 
 /**
- * Write a single-use sign-in link.
+ * Write a single-use link: a sign-in link by default, or another purpose such
+ * as reconfirming a listing.
  *
  * The display name travels with the link rather than going straight into a
  * user row: the account is created when this link is used, so a request for an
- * address nobody can read never leaves anything behind.
+ * address nobody can read never leaves anything behind. Reconfirmation links
+ * live longer than sign-in links because they arrive from a scheduled email
+ * rather than from a form the reader is sitting in front of.
  */
-function create_magic_link(string $email, string $displayName = ''): string
-{
+function create_magic_link(
+    string $email,
+    string $displayName = '',
+    string $purpose = 'login',
+    ?int $projectId = null,
+    int $minutes = 15
+): string {
     $raw = bin2hex(random_bytes(32));
     $pdo = db();
 
     $displayName = substr(trim($displayName), 0, 100);
+    $minutes = max(1, $minutes);
 
     $pdo->exec('DELETE FROM magic_links WHERE expires_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)');
 
     $stmt = $pdo->prepare(
-        'INSERT INTO magic_links (email, display_name, token_hash, purpose, expires_at, requested_ip_hash)
-         VALUES (?, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE), ?)'
+        'INSERT INTO magic_links (email, display_name, token_hash, purpose, project_id, expires_at, requested_ip_hash)
+         VALUES (?, ?, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ' . $minutes . ' MINUTE), ?)'
     );
     $stmt->execute([
         $email,
         $displayName !== '' ? $displayName : null,
         hash('sha256', $raw),
-        'login',
+        $purpose,
+        $projectId,
         client_ip_hash(),
     ]);
 
@@ -654,6 +664,48 @@ function send_email(string $to, string $subject, string $body): bool
     return mail($to, $subject, $body, implode("\r\n", $headers), '-f' . mail_from());
 }
 
+/**
+ * Where operator notifications go: `mail.admin` in the site config.
+ */
+function admin_address(): string
+{
+    $config = relay_config();
+
+    return trim((string) ($config['mail']['admin'] ?? ''));
+}
+
+/**
+ * Tell the operator something that needs a human: a listing or revision
+ * entering the review queue.
+ *
+ * Silent when no address is configured, and silent when the operator is the
+ * person who acted. A notification must never be the reason an action fails,
+ * so a send error is logged and swallowed.
+ *
+ * Subjects all start "Relay:" so a mail filter can divert them.
+ */
+function notify_admin(string $subject, string $body, string $actorEmail = ''): bool
+{
+    $to = admin_address();
+
+    if ($to === '') {
+        return false;
+    }
+
+    if ($actorEmail !== '' && strcasecmp($to, $actorEmail) === 0) {
+        return false;
+    }
+
+    if (!send_email($to, 'Relay: ' . $subject, $body)) {
+        error_log('Relay: could not send an admin notification: ' . $subject);
+        app_log('notify_admin: ' . $subject);
+
+        return false;
+    }
+
+    return true;
+}
+
 function send_magic_link(string $email, string $rawToken): bool
 {
     $url = magic_link_url($rawToken);
@@ -668,7 +720,7 @@ function consume_magic_link(string $rawToken): ?array
 {
     $pdo = db();
     $stmt = $pdo->prepare(
-        'SELECT id, email, display_name FROM magic_links
+        'SELECT id, email, display_name, purpose, project_id FROM magic_links
          WHERE token_hash = ? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP()'
     );
     $stmt->execute([hash('sha256', $rawToken)]);
