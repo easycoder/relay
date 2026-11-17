@@ -191,11 +191,19 @@ mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0004_add_review_note_and_resubmissions.sql
 ```
 
-Rebuild after a decision:
+Rebuild after a decision. A reviewer presses **Publish now** on `/review/`,
+which runs the same build from the browser — approving a listing does not
+publish it on its own. From a shell it is still:
 
 ```sh
 ./deploy.sh --build
 ```
+
+The button posts to `/publish/`, which is admin/moderator only, CSRF checked and
+allowed to run one build at a time; it reports how many listings it rebuilt and
+how many stale pages it removed. It needs `public/` writable by the PHP user,
+which it already is after a deploy. `php scripts/build.php` remains for cron and
+for deploying, and both paths run `build_catalogue()` from `src/build.php`.
 
 ## Editing a listing
 

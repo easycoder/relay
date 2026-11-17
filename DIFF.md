@@ -1,45 +1,33 @@
-# The brief is compressed on submit — smaller on the wire, and past the filter
+# Publishing from the browser: a Publish now button on /review/
 
-**Action:** deploy from `~/dev/relay`, hard-reload, submit as usual. Nothing to
-change on the domain or in the control panel.
+**Action:** deploy from `~/dev/relay`, reload `/review/`. Approve a listing, then
+press **Publish now**.
 
 ## What changed
 
-For briefs of 8 KB or more, `templates/submit.php` now:
+- **`/review/` has a Publish button.** It posts to `/publish/`, which rebuilds the
+  catalogue and returns to the review page with a count: "Published: 1 listing
+  rebuilt, 2 stale pages removed."
+- **`/publish/` is guarded**: `admin` or `moderator` only, POST only, CSRF
+  checked, and one build at a time through a lock file, because two builds would
+  interleave the directory pruning with the page writes. A failed build leaves
+  every page as it was, logs the reason to `storage/error.log`, and says so on the
+  page instead of showing a stack trace.
+- **The build moved into `src/build.php`** as `build_catalogue()`, returning its
+  progress lines and counts. `scripts/build.php` is now a thin wrapper around it,
+  so the button, cron and `./deploy.sh --build` all run the same code.
+- **The post-approval notices changed.** "Run `php scripts/build.php`" is gone:
+  the page now says the listing is approved and points at the button, and notes
+  that approving does not publish on its own.
+- `robots.txt` disallows `/publish/`.
 
-1. gzips the brief in the browser (`CompressionStream`), base64s it into a hidden
-   `brief_gz` field, disables the textarea and re-submits — **the normal path**;
-2. if the browser has no `CompressionStream`, attaches the brief as `brief.md` to
-   a hidden `brief_file` field instead;
-3. with neither, posts the textarea exactly as before.
+## Notes
 
-`absorb_brief_upload()` in `src/projects.php` reverses step 1 with `gzdecode`,
-falling back to the file, and writes the result into `$_POST['brief']` before
-anything reads it — so validation, the save, revisions and the limits see
-ordinary Markdown. Caps: 128 KB either way; bad base64, non-gzip data, missing
-temporary files and oversized payloads are ignored rather than fatal.
-
-## Why compression rather than a host setting
-
-- A one-paragraph brief always submitted; a 20 KB one was rejected before PHP ran,
-  because the host's request filter scores the *text* of a field (188 backtick
-  code spans in that brief). Compressed bytes carry no text to score.
-- It also sends about a fifth of the bytes, which is the better default on a slow
-  link regardless of any filter.
-- Turning ModSecurity off for the domain would have fixed it, but it is a setting
-  in a control panel rather than anything in this repository — one more thing for
-  a successor to discover. This keeps the behaviour with the code.
-
-## Removing it later
-
-If the site ever runs where long text is accepted, delete three things and the
-form goes back to plain HTML: the `<script>` and the two hidden inputs at the end
-of the form in `templates/submit.php`, and the `absorb_brief_upload()` calls at
-the top of `/submit/` and `/edit/` (`src/projects.php` can keep the function,
-unused, or lose it too).
-
-## Worth keeping
-
-The breadcrumbs (`submit: post received / validated / saved`) and
-`storage/error.log` stay: they are what turned this from guesswork into a
-diagnosis, and the next failure of this kind should be visible rather than silent.
+- The button writes `public/` as the PHP user, which is the same account the
+  deploy uses, so permissions are already right. If `public/` ever becomes
+  read-only to PHP, the page says the build failed rather than half-publishing.
+- The CLI is unchanged and still the right tool for deployments and cron:
+  `php scripts/build.php`, or `./deploy.sh --build`.
+- Publishing is still a separate act from reviewing. That is deliberate: a
+  reviewer can reject or approve in the queue without touching the live site, and
+  publish only when the set of changes is what they want to go out.

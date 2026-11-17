@@ -6,9 +6,13 @@
 /** @var string $csrf */
 /** @var string $done */
 /** @var string $error */
+/** @var int|null $published */
+/** @var int $removed */
 
 $revisions = $revisions ?? [];
 $error = $error ?? '';
+$published = $published ?? null;
+$removed = $removed ?? 0;
 
 ?>
 <section class="hero auth-hero">
@@ -17,17 +21,35 @@ $error = $error ?? '';
     <p class="lede">Only approved listings are published. Review the synopsis and brief before deciding.</p>
 </section>
 
+<div class="actions section">
+    <form method="post" action="/publish/">
+        <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
+        <button class="button" type="submit">Publish now</button>
+    </form>
+</div>
+<p class="meta">Rebuilds the public catalogue from the database. Approving or rejecting a listing does not publish it on its own.</p>
+
 <?php if ($done === 'approve'): ?>
-    <p class="notice">Listing approved. Run <code>php scripts/build.php</code> to publish it.</p>
+    <p class="notice">Listing approved. Press <strong>Publish now</strong> above to put it in the catalogue.</p>
 <?php elseif ($done === 'reject'): ?>
     <p class="notice">Listing rejected. It will not be published.</p>
 <?php elseif ($done === 'revision-approve'): ?>
-    <p class="notice">Revision approved. The live listing has the new details; run <code>php scripts/build.php</code> to update the static pages.</p>
+    <p class="notice">Revision approved. The live listing has the new details; press <strong>Publish now</strong> to update the static pages.</p>
 <?php elseif ($done === 'revision-reject'): ?>
     <p class="notice">Revision rejected. The live listing is unchanged.</p>
 <?php endif; ?>
 
-<?php if ($error === 'revision'): ?>
+<?php if ($published !== null): ?>
+    <p class="notice">Published: <?= (int) $published ?> listing<?= $published === 1 ? '' : 's' ?> rebuilt<?php if ($removed > 0): ?>, <?= (int) $removed ?> stale page<?= $removed === 1 ? '' : 's' ?> removed<?php endif; ?>.</p>
+<?php endif; ?>
+
+<?php if ($error === 'build'): ?>
+    <p class="form-errors" role="alert">The build failed, so every page is unchanged. Check that <code>public/</code> is writable and read <code>storage/error.log</code>.</p>
+<?php elseif ($error === 'busy'): ?>
+    <p class="form-errors" role="alert">A build is already running. Try again in a moment.</p>
+<?php elseif ($error === 'stale'): ?>
+    <p class="form-errors" role="alert">That request was out of date. Press Publish now again.</p>
+<?php elseif ($error === 'revision'): ?>
     <p class="form-errors" role="alert">That revision had already been reviewed or no longer exists.</p>
 <?php endif; ?>
 

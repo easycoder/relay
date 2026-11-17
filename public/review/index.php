@@ -98,6 +98,8 @@ $content = render_template('review', [
     'csrf' => csrf_token(),
     'done' => (string) ($_GET['done'] ?? ''),
     'error' => (string) ($_GET['error'] ?? ''),
+    'published' => isset($_GET['published']) ? (int) $_GET['published'] : null,
+    'removed' => (int) ($_GET['removed'] ?? 0),
 ]);
 
 echo render_site_page('Review queue — Relay', 'Review pending Relay listings.', '/review/', $content, true);
