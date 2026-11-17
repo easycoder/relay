@@ -352,10 +352,11 @@ function project_json_to_form(array $json): array
  * the whole POST before PHP runs: the content looks like an attack to a pattern
  * matcher. There are two escapes, tried in order:
  *
- *  1. `brief_file` — the brief as a file part, which is how the import sends the
- *     same text successfully on this host;
- *  2. `brief_gz` — the brief gzipped and base64-encoded by the browser, which
- *     has no text at all for a pattern matcher to score.
+ *  1. `brief_gz` - the brief gzipped and base64-encoded by the browser. It has
+ *     no text for a pattern matcher to score, and it is smaller over the
+ *     network, so this is the normal path;
+ *  2. `brief_file` - the brief as a file part, for browsers without
+ *     CompressionStream; it is the shape the import proves this host accepts.
  *
  * With neither, the textarea posts as normal and nothing here changes.
  *
@@ -364,13 +365,13 @@ function project_json_to_form(array $json): array
  */
 function absorb_brief_upload(array &$post, array $files, int $maxBytes = 131072): void
 {
-    $file = $files['brief_file'] ?? null;
+    $encoded = $post['brief_gz'] ?? '';
 
-    if (is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-        $tmp = (string) ($file['tmp_name'] ?? '');
+    if (is_string($encoded) && $encoded !== '' && function_exists('gzdecode')) {
+        $raw = base64_decode($encoded, true);
 
-        if ($tmp !== '' && is_file($tmp) && (int) ($file['size'] ?? 0) <= $maxBytes) {
-            $text = file_get_contents($tmp);
+        if ($raw !== false && strlen($raw) <= $maxBytes) {
+            $text = @gzdecode($raw);
 
             if (is_string($text) && $text !== '') {
                 $post['brief'] = $text;
@@ -380,19 +381,19 @@ function absorb_brief_upload(array &$post, array $files, int $maxBytes = 131072)
         }
     }
 
-    $encoded = $post['brief_gz'] ?? '';
+    $file = $files['brief_file'] ?? null;
 
-    if (!is_string($encoded) || $encoded === '' || !function_exists('gzdecode')) {
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return;
     }
 
-    $raw = base64_decode($encoded, true);
+    $tmp = (string) ($file['tmp_name'] ?? '');
 
-    if ($raw === false || strlen($raw) > $maxBytes) {
+    if ($tmp === '' || !is_file($tmp) || (int) ($file['size'] ?? 0) > $maxBytes) {
         return;
     }
 
-    $text = @gzdecode($raw);
+    $text = file_get_contents($tmp);
 
     if (is_string($text) && $text !== '') {
         $post['brief'] = $text;

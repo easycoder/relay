@@ -139,6 +139,17 @@ assets are dropped, and a Markdown code fence around the JSON is tolerated.
 `synopsis_ai_drafted` and `brief_ai_drafted` are advisory — the owner confirms
 them on the form.
 
+### A note on long briefs
+
+A brief of 8 KB or more is gzipped in the browser and submitted in a hidden field
+(`brief_gz`), with the textarea disabled; `absorb_brief_upload()` in
+`src/projects.php` inflates it back before validation. Two reasons: it is about a
+fifth of the bytes on the wire, and some hosts' request filters reject a long,
+code-heavy text field as though it were an attack — which is exactly what happened
+on this deployment. Browsers without `CompressionStream` fall back to sending the
+brief as a file part. Nothing else in the flow is aware of it. `DIFF.md` records
+how to remove it if the site ever moves somewhere that accepts the plain field.
+
 ## Human review
 
 A listing is not published until a person approves it. `projects.review_status`

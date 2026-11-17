@@ -374,7 +374,39 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
             form.addEventListener('submit', function (event) {
                 if (settled || brief.value.length < 8192) return;
 
-                // 1. Send it as a file part, the shape the import proves works.
+                // 1. Compress: fewer bytes on the wire, and no plain text for a
+                //    request filter to score. This is the normal path.
+                if (typeof CompressionStream !== 'undefined' && typeof TextEncoder !== 'undefined') {
+                    event.preventDefault();
+
+                    var bytes = new TextEncoder().encode(brief.value);
+
+                    new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip')))
+                        .arrayBuffer()
+                        .then(function (buffer) {
+                            var view = new Uint8Array(buffer);
+                            var binary = '';
+
+                            for (var i = 0; i < view.length; i += 1) {
+                                binary += String.fromCharCode(view[i]);
+                            }
+
+                            gzInput.value = btoa(binary);
+                            brief.disabled = true;
+                            settled = true;
+                            form.requestSubmit();
+                        })
+                        .catch(function () {
+                            brief.disabled = false;
+                            settled = true;
+                            form.requestSubmit();
+                        });
+
+                    return;
+                }
+
+                // 2. Older browser: send it as a file part instead, which is the
+                //    shape the import proves this host accepts.
                 if (typeof DataTransfer !== 'undefined' && typeof File !== 'undefined') {
                     try {
                         var payload = new DataTransfer();
@@ -382,39 +414,10 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
                         fileInput.files = payload.files;
                         brief.disabled = true;
                         settled = true;
-                        return;
                     } catch (error) {
-                        // fall through to compression
+                        brief.disabled = false;
                     }
                 }
-
-                // 2. Compress it, so a pattern matcher has no text to read.
-                if (typeof CompressionStream === 'undefined' || typeof TextEncoder === 'undefined') return;
-
-                event.preventDefault();
-
-                var bytes = new TextEncoder().encode(brief.value);
-
-                new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip')))
-                    .arrayBuffer()
-                    .then(function (buffer) {
-                        var view = new Uint8Array(buffer);
-                        var binary = '';
-
-                        for (var i = 0; i < view.length; i += 1) {
-                            binary += String.fromCharCode(view[i]);
-                        }
-
-                        gzInput.value = btoa(binary);
-                        brief.disabled = true;
-                        settled = true;
-                        form.requestSubmit();
-                    })
-                    .catch(function () {
-                        brief.disabled = false;
-                        settled = true;
-                        form.requestSubmit();
-                    });
             });
         })();
         </script>

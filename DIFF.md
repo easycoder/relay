@@ -1,47 +1,45 @@
-# The brief now leaves the browser as a file or compressed, not as long text
+# The brief is compressed on submit — smaller on the wire, and past the filter
 
-**Action:** deploy from `~/dev/relay`, hard-reload, submit the AllSpeak listing
-with the full brief.
-
-## Why compression is the right idea
-
-A pattern-matching request filter scores the *text* of a form field: backticks,
-HTML-looking tags, SQL-ish phrases. Compressed bytes have no text to score, and a
-file part is not inspected the way a field is — which is why the import, which
-sends your listing as an uploaded file, already gets through on this host.
-
-Requiring you to zip the brief by hand would work, but it puts a step in the way
-of every submission and needs `ext-zip` on the server. The browser can gzip it
-with `CompressionStream` and the server can inflate it with `gzdecode`, which is
-plain zlib and always present.
+**Action:** deploy from `~/dev/relay`, hard-reload, submit as usual. Nothing to
+change on the domain or in the control panel.
 
 ## What changed
 
-`templates/submit.php` — on submit, when the brief is 8 KB or longer:
+For briefs of 8 KB or more, `templates/submit.php` now:
 
-1. it is attached as `brief.md` to a hidden `brief_file` field and the textarea
-   is disabled (file part, the shape the import proves works);
-2. if `DataTransfer` is unavailable, it is gzipped, base64-encoded into a hidden
-   `brief_gz` field, the textarea disabled, and the form re-submitted;
-3. with neither available, nothing changes and the textarea posts as before.
+1. gzips the brief in the browser (`CompressionStream`), base64s it into a hidden
+   `brief_gz` field, disables the textarea and re-submits — **the normal path**;
+2. if the browser has no `CompressionStream`, attaches the brief as `brief.md` to
+   a hidden `brief_file` field instead;
+3. with neither, posts the textarea exactly as before.
 
-Short briefs (under 8 KB) are untouched, so the submissions that already work
-cannot regress.
+`absorb_brief_upload()` in `src/projects.php` reverses step 1 with `gzdecode`,
+falling back to the file, and writes the result into `$_POST['brief']` before
+anything reads it — so validation, the save, revisions and the limits see
+ordinary Markdown. Caps: 128 KB either way; bad base64, non-gzip data, missing
+temporary files and oversized payloads are ignored rather than fatal.
 
-`absorb_brief_upload()` in `src/projects.php` reads `brief_file` first, then
-`brief_gz` (128 KB cap, bad base64, non-gzip data and missing temporary files all
-ignored). It runs at the top of `/submit/` and `/edit/` before anything reads the
-field, so validation, the save and the revision path see ordinary text.
+## Why compression rather than a host setting
 
-## If it still fails
+- A one-paragraph brief always submitted; a 20 KB one was rejected before PHP ran,
+  because the host's request filter scores the *text* of a field (188 backtick
+  code spans in that brief). Compressed bytes carry no text to score.
+- It also sends about a fifth of the bytes, which is the better default on a slow
+  link regardless of any filter.
+- Turning ModSecurity off for the domain would have fixed it, but it is a setting
+  in a control panel rather than anything in this repository — one more thing for
+  a successor to discover. This keeps the behaviour with the code.
 
-Then the filter inspects binary bodies too, and it has to be relaxed on the host:
-DreamHost panel → **Manage Domains** → the domain → **Web Security**, or support
-whitelisting one rule id, found with:
+## Removing it later
 
-```sh
-grep -i modsecurity logs/relay.eclecity.net/https/error.log | tail -5
-```
+If the site ever runs where long text is accepted, delete three things and the
+form goes back to plain HTML: the `<script>` and the two hidden inputs at the end
+of the form in `templates/submit.php`, and the `absorb_brief_upload()` calls at
+the top of `/submit/` and `/edit/` (`src/projects.php` can keep the function,
+unused, or lose it too).
 
-Apache rejects the request before PHP, which is why no application log ever saw
-it.
+## Worth keeping
+
+The breadcrumbs (`submit: post received / validated / saved`) and
+`storage/error.log` stay: they are what turned this from guesswork into a
+diagnosis, and the next failure of this kind should be visible rather than silent.
