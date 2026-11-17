@@ -150,6 +150,27 @@ on this deployment. Browsers without `CompressionStream` fall back to sending th
 brief as a file part. Nothing else in the flow is aware of it. `DIFF.md` records
 how to remove it if the site ever moves somewhere that accepts the plain field.
 
+## Finding projects
+
+`/find/` is the searchable view of the catalogue: free text over title, pitch,
+synopsis and brief, plus facets for category, what the owner is looking for,
+arrangement, readiness and effort in hours per month. Choices are a GET form, so
+any view is a link that can be shared or bookmarked, and the page works without
+JavaScript.
+
+Each facet's counts are computed *without* its own filter, so a dropdown shows
+what choosing that value would lead to rather than only what is already chosen.
+The query lives in `search_where()` in `src/search.php`, which returns SQL and its
+parameters together — the parameters are bound, and `%`/`_` in a search term are
+escaped before they reach `LIKE`.
+
+`/find/?format=json` returns the same rows as data (`query`, `total`, `page`,
+`pages`, `projects`), which is the surface an agent or script reads;
+`/projects.json` remains the whole-catalogue dump. Facet URLs are `noindex` and
+disallowed in `robots.txt` so the generated pages stay the indexed catalogue.
+The nav link and the catalogue's "Filter and search" button appear on generated
+pages, so they need a publish (or a build) to show up.
+
 ## Human review
 
 A listing is not published until a person approves it. `projects.review_status`

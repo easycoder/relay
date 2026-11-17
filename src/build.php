@@ -282,6 +282,7 @@ function build_catalogue(): array
         . "Disallow: /dashboard/\n"
         . "Disallow: /review/\n"
         . "Disallow: /publish/\n"
+        . "Disallow: /find/\n"
         . "Disallow: /logout/\n"
         . "Disallow: /session.php\n"
         . "Sitemap: {$siteUrl}/sitemap.xml\n";

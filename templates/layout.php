@@ -31,6 +31,7 @@
             <a class="brand" href="/">Relay</a>
             <nav aria-label="Primary">
                 <a href="/projects/">Projects</a>
+                <a href="/find/">Find</a>
                 <a href="/learn/">Learn</a>
                 <a href="/submit/">Submit</a>
                 <a href="/dashboard/" id="relay-nav-dashboard" <?= empty($currentUser) ? 'hidden' : '' ?>>Dashboard</a>

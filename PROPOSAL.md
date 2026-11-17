@@ -3,6 +3,8 @@
 > **Status:** agreed direction · **Date:** 2026-11-16 · **Name:** Relay · **Host:** relay.eclecity.net
 >
 > **Agreed on 2026-11-16:** the name **Relay**; listings and an interest relay first, with rooms in Phase 2; a pre-rendered public catalogue with a browser-based **AllSpeak** UI for the interactive surfaces, a **PHP** backend and a **database**; **free and open source**, with no paid tier.
+>
+> **Amended 2026-11-17 — the UI runtime.** AllSpeak is withdrawn from Relay's plan. The build is server-rendered **PHP** throughout: the public catalogue is generated HTML, and the working surfaces (search, submission, dashboard, review, interests) are PHP templates rendered per request. Reasons: this UX does very little client-side work, so a browser runtime would add a moving part and a CDN dependency without buying anything; the pages stay crawlable and readable with JavaScript off; and a handover project should not carry a technology stack it does not need. AllSpeak was the right question to ask and the wrong answer here. Agents and scripts are served by JSON instead (`projects.json`, `/find/?format=json`), which is the machine interface the AI-assisted workflow actually needs. The code has been built this way since the first listing; this note makes the plan say what the code does.
 
 ## 1. The proposition
 
@@ -212,7 +214,7 @@ Search is the product. A visitor who cannot narrow 200 projects to five relevant
 - A public statistics page: live listings, introductions made, adoptions recorded, median time to first contact. Honest numbers build more trust than testimonials.
 - A zero-result search is a demand signal: "tell us what you were looking for" feeds the next round of outreach.
 
-**Implementation note.** The database is the source of truth once accounts and expressions of interest exist. A build/refresh step exports the public listings to `search-index.json`, `projects.json`, feeds and sitemap; the browser-side AllSpeak UI searches that export with a small library (MiniSearch or Pagefind), and a PHP search endpoint provides a no-JS fallback and the stable public API. Search results themselves are `noindex`; the canonical, crawlable pages are the generated listing, category and keyword pages.
+**Implementation note.** The database is the source of truth once accounts and expressions of interest exist. A build/refresh step exports the public listings to `projects.json`, feeds and sitemap. Search is a PHP endpoint (`/find/`) that filters the database in SQL — free text plus facets over category, status, arrangement, readiness and effort — with `?format=json` returning the same rows for agents. Search results are `noindex`; the canonical, crawlable pages are the generated listing, category and keyword pages.
 
 ## 8. Connecting: rooms, not a lobby
 
@@ -304,29 +306,29 @@ The home page should not try to explain everything. It should present the two jo
 
 ## 11. How it is built
 
-The site follows the eclecity pattern — DreamHost, PHP, static files, rsync deployment — with two choices confirmed in review: **browser-based AllSpeak for the UI** and **a database for the things that are not content**.
+The site follows the eclecity pattern — DreamHost, PHP, static files, rsync deployment — with two choices confirmed in review: **server-rendered PHP for every surface** (see the amendment above) and **a database for the things that are not content**.
 
 **The split**
 
 | Layer | Choice | Why |
 |---|---|---|
-| Public catalogue | HTML generated from the database by a CLI build script | Crawlable and linkable; search engines and agents do not run AllSpeak or JavaScript. |
-| UI runtime | Browser-based AllSpeak (`allspeak.js`) | Consistent with doclets, chat and the rest of the estate; the UI reads like the other projects. |
-| Interactive surfaces | AllSpeak app scripts: search and filters, submission wizard, dashboard, rooms | The parts that need state and events; progressive enhancement over the generated pages. |
+| Public catalogue | HTML generated from the database by a CLI build script | Crawlable and linkable; search engines and agents read HTML and JSON, not JavaScript. |
+| UI runtime | None: PHP templates rendered per request | This UX does little client-side work, so a browser runtime would add a dependency for nothing. |
+| Interactive surfaces | PHP forms and pages: search and filters, submission, dashboard, review, interests | Work with JavaScript off; a script may enhance a page later, never gate it. |
 | Backend | PHP 8 with PDO and prepared statements | Fits DreamHost, no framework, easy to audit and self-host. |
 | Database | MySQL 8 / MariaDB, `utf8mb4`, InnoDB | Accounts, listings, interests, rooms, messages, reports. Provisioned on the same account as the site. |
-| Search index | Generated JSON from the database, searched with MiniSearch in the browser; `search.php` fallback | Fast, cacheable, no search server to run. |
+| Search | SQL over the database at request time (`/find/`), JSON for agents | Nothing to index or keep in step; the catalogue is small. |
 | Auth | Magic link by email; GitHub OAuth for owner verification | No passwords to store or leak. |
 | Rooms | Messages in the database; SSE or short polling at launch; MQTT later if needed | Durable and simple; works on shared hosting. |
 | Email | `mail()` or authenticated SMTP, with SPF and DKIM | Magic links, notifications and expiry reminders. |
 | Deploy | `deploy.sh` with rsync, modelled on RBR's | Familiar, reviewable, rollback-friendly. |
 | Analytics | Server logs plus a small first-party counter | No third-party tracking, no cookie banner. |
 
-**How AllSpeak and pre-rendered HTML coexist**
+**How the pages and the working parts fit together**
 
-Every public page is rendered as HTML by the build step, using the same CSS and layout as the AllSpeak app. The page is complete without JavaScript: a listing, a category page, a guide. AllSpeak then takes over the interactive layer — it fetches the search export or `/api/projects.json`, renders the filter UI, and drives the submission wizard, dashboard and rooms. A `<noscript>` fallback keeps the catalogue usable, and forms post directly to PHP if the script fails.
+Every public page is rendered as HTML: the catalogue, listing, category and guide pages by the build step, the working surfaces (search, submission, dashboard, review, interests) by PHP on each request. Both use the same templates, CSS and layout, so the site reads as one thing. Nothing needs JavaScript to browse, search, submit or review; a script may sharpen a page later — filtering without a reload, copying the AI prompt — but the page must work without it.
 
-This is a deliberate compromise, not a rejection of AllSpeak. A pure AllSpeak single-page app would hide the catalogue from search engines and from agents that fetch HTML, and would make every listing depend on a CDN runtime. The site's public face is therefore pre-rendered; its working parts are AllSpeak. If AllSpeak later gains server-side rendering, the build step can be replaced without changing a single URL.
+Agents are served by JSON rather than by a browser runtime: `projects.json` for the whole catalogue and `/find/?format=json` for a filtered view. That is the interface the AI-assisted workflow needs, and it costs nothing to keep stable.
 
 **Why a database**
 
@@ -385,7 +387,7 @@ Lock the name Relay, write the one-page manifesto, create the database schema an
 
 **Phase 1 — MVP (weeks 2–4)**
 
-Listing pages generated from the database, AllSpeak search and facets, owner submission with magic-link editing, moderation queue, expression-of-interest relay by email, expiry reminders, public JSON API, sitemap and feeds, safety and legal pages. *Done when* 20 quality listings are live and the first three expressions of interest have been delivered.
+Listing pages generated from the database, search and facets, owner submission with magic-link editing, moderation queue, expression-of-interest relay by email, expiry reminders, public JSON API, sitemap and feeds, safety and legal pages. *Done when* 20 quality listings are live and the first three expressions of interest have been delivered.
 
 **Phase 2 — Rooms and accounts (weeks 5–8)**
 
@@ -415,11 +417,11 @@ Each phase should be shippable on its own. If Phase 0 attracts no owners, that i
 
 1. **Name.** Relay. The host is `relay.eclecity.net`; a separate brand domain can follow later if it proves useful.
 2. **Launch scope.** Listings, search and an expression-of-interest relay first; private project rooms in Phase 2. No public lobby at launch.
-3. **Build.** Pre-rendered HTML for the public catalogue, browser-based AllSpeak for the interactive surfaces, PHP for the backend, MySQL for the data. The public pages stay crawlable; the app is AllSpeak.
+3. **Build.** Pre-rendered HTML for the public catalogue, server-rendered PHP for the working surfaces, MySQL for the data. Everything stays crawlable and usable without JavaScript; JSON serves agents. (Amended 2026-11-17: AllSpeak was withdrawn from the UI; see the note at the top.)
 4. **Money and licence.** Free at launch and after, with no paid tier; Apache-2.0 and self-hostable.
 5. **First listing.** Relay itself, with its current honest status: the database and deployment are in place, the catalogue is being built, and a co-maintainer is sought. RBR follows, with its handover mechanism built and tested and no named successor yet.
 
-The remaining choices — column types, the AllSpeak version pin, the exact deploy target, the first five categories — are ordinary engineering decisions and do not need another round of review.
+The remaining choices — column types, the exact deploy target, the first five categories — are ordinary engineering decisions and do not need another round of review.
 
 ## 17. Recommendation
 
