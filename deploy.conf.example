@@ -4,10 +4,10 @@
 # DEPLOY_PATH is the repository on the server, NOT the web root. The web root
 # is DEPLOY_PATH/public; set that in DreamHost under Manage Domains.
 #
-# Use doclets.eclecity.net as the SSH host: the laptop's key is accepted
-# there, and relay.eclecity.net's own host key may not be.
+# Use the host that accepts this machine's SSH key. The site's own host name
+# may not be the right SSH target.
 #
 DEPLOY_USER=eclecity
-DEPLOY_HOST=doclets.eclecity.net
+DEPLOY_HOST=eclecity.net
 DEPLOY_PATH=/home/eclecity/relay.eclecity.net
 # DEPLOY_PORT=22

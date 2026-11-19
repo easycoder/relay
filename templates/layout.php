@@ -33,6 +33,7 @@
                 <a href="/projects/">Projects</a>
                 <a href="/find/">Find</a>
                 <a href="/learn/">Learn</a>
+                <a href="/about/">About</a>
                 <a href="/submit/">Submit</a>
                 <a href="/dashboard/" id="relay-nav-dashboard" <?= empty($currentUser) ? 'hidden' : '' ?>>Dashboard</a>
                 <a href="/login/" id="relay-nav-signin" <?= !empty($currentUser) ? 'hidden' : '' ?>>Sign in</a>
@@ -48,7 +49,7 @@
     <footer class="site-footer">
         <div class="wrap">
             <p>Relay is free and open source under the Apache-2.0 licence.</p>
-            <p><a href="/projects/">Projects</a> · <a href="<?= e(RELAY_REPO_URL) ?>" rel="noopener">GitHub</a></p>
+            <p><a href="/projects/">Projects</a> · <a href="/about/">About</a> · <a href="<?= e(RELAY_REPO_URL) ?>" rel="noopener">GitHub</a></p>
         </div>
     </footer>
 

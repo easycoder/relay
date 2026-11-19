@@ -1,5 +1,5 @@
-# AllSpeak Project — Claude Bootstrap
+# Relay — Claude bootstrap
 
-**`AGENTS.md` in this directory is the single source of instructions for this project. Read it now**, before doing anything else — it covers the language, the required practices, the common mistakes to avoid, and the first-time setup.
+**`AGENTS.md` in this directory is the single source of instructions for this project. Read it now.** It covers the stage and intent model, the review and endorsement flow, the database and audit invariants, the build and deploy steps, and the project's boundaries.
 
-> **Beginner tip:** If nothing happens when you start Claude, type **go**.
+This is a PHP 8 + MySQL project. It is not an AllSpeak project: there is no browser runtime in the critical path and no `.allspeak` code to add.

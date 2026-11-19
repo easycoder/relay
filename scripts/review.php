@@ -4,14 +4,20 @@
 /**
  * Human review queue for listings.
  *
- * Only projects with review_status = 'approved' are built into the public
- * catalogue. New submissions start pending; a trusted person runs this CLI:
+ * New submissions and corrections start pending. Edits to live listings go
+ * live immediately and appear as recent edits until accepted or the re-review
+ * window passes. A trusted person runs this CLI:
  *
  *   php scripts/review.php list
  *   php scripts/review.php approve <slug>
  *   php scripts/review.php reject <slug> [--note "reason"]
+ *   php scripts/review.php veto <slug> --note "reason"
+ *   php scripts/review.php accept-edit <slug>
+ *   php scripts/review.php takedown <slug> --note "reason"
  *
- * Then rebuild with php scripts/build.php.
+ * A veto reverses a community approval; a take-down removes a live listing
+ * pending a correction and emails the owner. Neither counts as a rejection
+ * strike. Then rebuild with php scripts/build.php.
  */
 
 declare(strict_types=1);
@@ -26,8 +32,12 @@ Usage:
   php scripts/review.php list
   php scripts/review.php approve <slug>
   php scripts/review.php reject <slug> [--note "reason"]
+  php scripts/review.php veto <slug> --note "reason"
+  php scripts/review.php accept-edit <slug>
+  php scripts/review.php takedown <slug> --note "reason"
 
-Revisions to live listings are reviewed at /review/.
+New listings and corrections need review. Edits to live listings go live
+immediately and appear under recent edits.
 Only approved listings are published. Rebuild after a decision:
   php scripts/build.php
 TXT;
@@ -42,7 +52,7 @@ if (in_array($command, ['help', '-h', '--help'], true)) {
     exit(0);
 }
 
-if (!in_array($command, ['list', 'approve', 'reject'], true)) {
+if (!in_array($command, ['list', 'approve', 'reject', 'veto', 'accept-edit', 'takedown'], true)) {
     usage();
     exit(2);
 }
@@ -56,25 +66,58 @@ try {
 
 if ($command === 'list') {
     $rows = $pdo->query(
-        "SELECT id, slug, title, status, created_at
-         FROM projects
-         WHERE review_status = 'pending'
-         ORDER BY created_at ASC, id ASC"
+        "SELECT p.id, p.slug, p.title, p.status, p.stage, p.created_at,
+                (SELECT COUNT(*) FROM project_likes l WHERE l.project_id = p.id) AS like_count
+         FROM projects p
+         WHERE p.review_status = 'pending'
+         ORDER BY p.created_at ASC, p.id ASC"
     )->fetchAll();
 
-    if ($rows === []) {
-        echo "No projects awaiting review.\n";
+    $edits = $pdo->query(
+        "SELECT p.slug, p.title, p.edited_at, u.display_name AS owner_name
+         FROM projects p
+         JOIN users u ON u.id = p.owner_id
+         WHERE p.review_status = 'approved'
+           AND p.edit_review_status = 'pending'
+           AND p.edited_at IS NOT NULL
+           AND p.edited_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL " . edit_review_days() . " DAY)
+         ORDER BY p.edited_at DESC, p.id DESC"
+    )->fetchAll();
+
+    if ($rows === [] && $edits === []) {
+        echo "Nothing is awaiting review.\n";
         exit(0);
     }
 
-    foreach ($rows as $row) {
-        printf("#%d  %s\n", $row['id'], $row['title']);
-        printf("     slug: %s\n", $row['slug']);
-        printf("     status: %s\n", $row['status']);
-        printf("     submitted: %s\n\n", $row['created_at']);
+    if ($rows !== []) {
+        foreach ($rows as $row) {
+            printf("#%d  %s\n", $row['id'], $row['title']);
+            printf("     slug: %s\n", $row['slug']);
+            printf("     stage: %s\n", $row['stage']);
+            printf("     status: %s\n", $row['status']);
+            printf("     endorsements: %d\n", $row['like_count']);
+            printf("     submitted: %s\n\n", $row['created_at']);
+        }
+
+        echo count($rows) . " awaiting initial review.\n";
     }
 
-    echo count($rows) . " awaiting review.\n";
+    if ($edits !== []) {
+        echo PHP_EOL . "Recent edits awaiting re-review:\n";
+
+        foreach ($edits as $edit) {
+            printf(
+                "  %s  %s  (edited %s, owner %s)\n",
+                $edit['slug'],
+                $edit['title'],
+                $edit['edited_at'],
+                $edit['owner_name']
+            );
+        }
+
+        echo count($edits) . " edit(s) in the re-review window.\n";
+    }
+
     exit(0);
 }
 
@@ -99,6 +142,56 @@ if (!$project) {
     exit(1);
 }
 
+$actor = 'cli:' . (getenv('USER') ?: 'unknown');
+
+if ($command === 'veto') {
+    if ($note === '') {
+        fwrite(STDERR, "A veto needs --note \"reason\".\n");
+        exit(2);
+    }
+
+    try {
+        veto_project($pdo, (int) $project['id'], $note, null, $actor);
+    } catch (Throwable $e) {
+        fwrite(STDERR, "Could not veto {$project['slug']}: {$e->getMessage()}\n");
+        exit(1);
+    }
+
+    echo "Vetoed {$project['slug']} ({$project['title']}).\n";
+    echo "Run php scripts/build.php to update the public catalogue.\n";
+    exit(0);
+}
+
+if ($command === 'takedown') {
+    if ($note === '') {
+        fwrite(STDERR, "A take-down needs --note \"reason\".\n");
+        exit(2);
+    }
+
+    try {
+        take_down_project($pdo, (int) $project['id'], $note, null, $actor);
+    } catch (Throwable $e) {
+        fwrite(STDERR, "Could not take down {$project['slug']}: {$e->getMessage()}\n");
+        exit(1);
+    }
+
+    echo "Took down {$project['slug']} ({$project['title']}). The owner has been emailed.\n";
+    echo "Run php scripts/build.php to remove the page from the catalogue.\n";
+    exit(0);
+}
+
+if ($command === 'accept-edit') {
+    try {
+        accept_edit($pdo, (int) $project['id'], null, $actor);
+    } catch (Throwable $e) {
+        fwrite(STDERR, "Could not accept the edit on {$project['slug']}: {$e->getMessage()}\n");
+        exit(1);
+    }
+
+    echo "Accepted the edit on {$project['slug']} ({$project['title']}).\n";
+    exit(0);
+}
+
 $reviewStatus = $command === 'approve' ? 'approved' : 'rejected';
 
 review_project(
@@ -107,7 +200,7 @@ review_project(
     $reviewStatus,
     $note,
     null,
-    'cli:' . (getenv('USER') ?: 'unknown')
+    $actor
 );
 
 echo ucfirst($reviewStatus) . " {$project['slug']} ({$project['title']}).\n";

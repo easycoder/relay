@@ -18,7 +18,7 @@ $existing = $existing ?? null;
 
     <?php if ($notOpen): ?>
         <h1>This listing is not open</h1>
-        <p class="lede">It may be awaiting review, expired, or no longer published.</p>
+        <p class="lede">It may be pending approval, expired, or no longer published.</p>
         <p class="actions"><a class="button" href="/projects/">Browse projects</a></p>
     <?php elseif ($ownListing): ?>
         <h1>This is your listing</h1>

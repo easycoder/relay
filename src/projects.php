@@ -4,8 +4,8 @@
  * Listing options, validation and creation for the submission form.
  *
  * A submission is always inserted with review_status = 'pending'. The public
- * build only includes approved rows, so nothing reaches the catalogue until a
- * person reviews it.
+ * build only includes approved rows, so nothing reaches the catalogue without a
+ * person approving it or a threshold of reasoned likes approving it.
  */
 
 declare(strict_types=1);
@@ -46,14 +46,107 @@ const EXPIRY_REMINDER_DAYS = 14;
 /** How long an expiry link stays valid: long enough to survive a holiday. */
 const EXPIRY_LINK_MINUTES = 30 * 24 * 60;
 
+/**
+ * How long a listing stays published, or stays in the queue, without being
+ * renewed. One constant so the SQL, the reminder and the documentation cannot
+ * drift apart.
+ */
+const EXPIRY_INTERVAL = '6 MONTH';
+
+/** Default days an edit stays marked Edited and in the re-review list. */
+const EDIT_REVIEW_DAYS = 14;
+
+/**
+ * How long an edit stays in the re-review list and marked Edited.
+ */
+function edit_review_days(): int
+{
+    $config = relay_config();
+
+    return max(1, (int) (
+        $config['community']['edit_review_days']
+        ?? $config['edit_review_days']
+        ?? EDIT_REVIEW_DAYS
+    ));
+}
+
+/**
+ * Whether the public "Edited" marker should show.
+ *
+ * It shows only while an edit is awaiting re-review and inside the window.
+ * Accepting it, or the window passing, removes the marker.
+ *
+ * @param array<string, mixed> $project
+ */
+function edit_marker_visible(array $project): bool
+{
+    if (($project['review_status'] ?? '') !== 'approved') {
+        return false;
+    }
+
+    if (($project['edit_review_status'] ?? '') !== 'pending') {
+        return false;
+    }
+
+    $editedAt = (string) ($project['edited_at'] ?? '');
+
+    if ($editedAt === '') {
+        return false;
+    }
+
+    $timestamp = strtotime($editedAt . ' UTC');
+
+    return $timestamp !== false && $timestamp > time() - edit_review_days() * 86400;
+}
+
+/**
+ * Accept edits whose re-review window has passed.
+ *
+ * The review list already excludes them, but keeping the status honest means
+ * the dashboard and any later query agree. The build calls this.
+ */
+function accept_stale_edits(PDO $pdo): int
+{
+    $stmt = $pdo->prepare(
+        "UPDATE projects
+         SET edit_review_status = 'accepted', review_diff = NULL
+         WHERE review_status = 'approved'
+           AND edit_review_status = 'pending'
+           AND edited_at IS NOT NULL
+           AND edited_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL " . edit_review_days() . " DAY)"
+    );
+    $stmt->execute();
+
+    return $stmt->rowCount();
+}
+
 function project_status_options(): array
 {
     return [
         'seeking-successor' => 'Seeking successor',
         'seeking-co-maintainer' => 'Seeking co-maintainer',
         'seeking-buyer' => 'Seeking buyer',
+        'seeking-collaborator' => 'Seeking collaborator',
+        'seeking-testers' => 'Seeking testers',
+        'seeking-feedback' => 'Seeking feedback',
         'temporary-steward' => 'Temporary steward',
         'dormant' => 'Dormant',
+    ];
+}
+
+/**
+ * How far the work has got, independent of what the owner is looking for.
+ *
+ * An idea has no repository, no users and no revenue yet; a prototype has some
+ * of a build; a live project has users and obligations. The stage decides which
+ * fields are worth asking for and which brief sections make sense.
+ */
+function stage_options(): array
+{
+    return [
+        'idea' => 'Idea — not built yet',
+        'prototype' => 'Prototype — under development',
+        'live' => 'Live — in use',
     ];
 }
 
@@ -247,9 +340,10 @@ function submission_fields(): array
         'title' => ['label' => 'Title', 'type' => 'string', 'required' => true, 'note' => 'The project name as it should appear in the catalogue.'],
         'pitch' => ['label' => 'One-line pitch', 'type' => 'string', 'required' => true, 'note' => 'One sentence: what it does and who it is for.'],
         'synopsis' => ['label' => 'Synopsis', 'type' => 'text', 'required' => true, 'note' => 'A short plain-English description for someone who has never used it.'],
-        'brief' => ['label' => 'Adoption Brief', 'type' => 'markdown', 'required' => true, 'note' => 'Markdown, using the ten sections listed above.'],
+        'brief' => ['label' => 'Brief', 'type' => 'markdown', 'required' => true, 'note' => 'Markdown, using the section list for the chosen stage.'],
+        'stage' => ['label' => 'Stage', 'type' => 'string', 'required' => true, 'note' => 'How far the work has got: idea, prototype or live.'],
         'status' => ['label' => 'Status', 'type' => 'string', 'required' => true, 'note' => 'What the owner is looking for.'],
-        'arrangement' => ['label' => 'Arrangement', 'type' => 'string', 'required' => true, 'note' => 'How the project would change hands.'],
+        'arrangement' => ['label' => 'Arrangement', 'type' => 'string', 'required' => false, 'note' => 'How the project would change hands. Leave empty for an idea that is not being handed over yet.'],
         'category' => ['label' => 'Category', 'type' => 'string', 'required' => true, 'note' => 'One category slug from the list above.'],
         'revenue_state' => ['label' => 'Revenue state', 'type' => 'string', 'required' => true, 'note' => 'Whether it earns anything today.'],
         'revenue_model' => ['label' => 'Revenue model', 'type' => 'string', 'required' => false, 'note' => 'How money is made, if it is. Empty when there is none.'],
@@ -341,6 +435,12 @@ function project_json_to_form(array $json): array
     ));
     $form['synopsis_ai_drafted'] = !empty($json['synopsis_ai_drafted']) ? '1' : '';
     $form['brief_ai_drafted'] = !empty($json['brief_ai_drafted']) ? '1' : '';
+
+    // An AI that omits the stage is describing a built project unless it says
+    // otherwise. Without this the first option in the select would be chosen.
+    if (($form['stage'] ?? '') === '') {
+        $form['stage'] = 'live';
+    }
 
     return $form;
 }
@@ -452,6 +552,7 @@ function submission_prompt(array $categories = []): string
     $optionLines = [];
 
     foreach ([
+        'stage' => stage_options(),
         'status' => project_status_options(),
         'arrangement' => arrangement_options(),
         'revenue_state' => revenue_state_options(),
@@ -474,6 +575,7 @@ function submission_prompt(array $categories = []): string
         'pitch' => 'One sentence on what it does and who it is for.',
         'synopsis' => 'A short description for someone who has never used it.',
         'brief' => "## What it is\n\nOne paragraph a non-user would understand.\n\n## Who uses it\n\nDescribe the users, or say that there are none yet.\n",
+        'stage' => 'live',
         'status' => 'seeking-successor',
         'arrangement' => 'gift',
         'category' => (string) (array_key_first($categories) ?: 'developer-tools'),
@@ -505,19 +607,22 @@ function submission_prompt(array $categories = []): string
     ];
 
     $lines = [
-        'You are helping the owner of a software project write a listing for Relay.',
+        'You are helping the owner of a project, product or idea write a listing for Relay.',
         '',
-        'Relay is a free, open-source registry for projects that need a next maintainer.',
-        'An adopter, often working with an AI agent, reads the listing to decide whether to',
-        'take the project on. Accuracy matters more than persuasion: a listing that',
-        'overstates what is there wastes everyones time, and the owner has to confirm every',
-        'claim before a person reviews it.',
+        'Relay is a free, open-source registry for work that needs someone to take it on,',
+        'contribute to, or test before it goes further. A reader, often working with an AI',
+        'agent, uses the listing to decide whether to get involved. Accuracy matters more',
+        'than persuasion: a listing that overstates what is there wastes everyone\'s time,',
+        'and the owner has to confirm every claim before another person reviews it.',
         '',
         'How to work',
         '- Ask the owner about anything you do not know. Never invent figures, dates,',
         '  licences, URLs, obligations or history.',
-        '- Write in plain English, in the owners voice. No marketing, no superlatives.',
-        '- The brief is Markdown with these ten sections, in this order:',
+        '- Write in plain English, in the owner\'s voice. No marketing, no superlatives.',
+        '- Choose the brief that matches the stage. The brief is Markdown with these',
+        '  sections, in this order:',
+        '',
+        '  stage "live" (an Adoption Brief):',
         '  1. What it is - one paragraph a non-user would understand.',
         '  2. Who uses it - customers, installers, internal users, nobody yet.',
         '  3. Why it exists - the problem, the history, what would be lost.',
@@ -529,6 +634,30 @@ function submission_prompt(array $categories = []): string
         '  8. The obligations - support expectations, regulations, customer data, promises.',
         '  9. The state of play - open issues, known bugs, planned work, technical debt.',
         '  10. The first 30 days - what a new maintainer should do, in order.',
+        '',
+        '  stage "prototype" (a Project Brief):',
+        '  1. What it is - one paragraph a non-user would understand.',
+        '  2. The problem - who has it, and why it matters.',
+        '  3. What works so far - the parts that are built and tested.',
+        '  4. What is unfinished - the gaps, and the hardest one.',
+        '  5. How to run it - commands, environments, known breakage.',
+        '  6. What it needs next - the next useful step, and what it would take.',
+        '  7. The economics, if any - revenue, costs, what is owed.',
+        '  8. What the owner wants - collaborator, tester, feedback, or a successor.',
+        '  9. What is not for transfer - personal accounts, data, side projects.',
+        '  10. How to verify this brief - links, commit hashes, dates, a named contact.',
+        '',
+        '  stage "idea" (an Idea Brief):',
+        '  1. The idea - one paragraph a non-user would understand.',
+        '  2. The problem - who has it, and what they do now.',
+        '  3. Evidence it is real - conversations, demand, existing spending or workarounds.',
+        '  4. Prior art - what already exists, and why it is not enough.',
+        '  5. Why it has not been built - the hard part, honestly.',
+        '  6. A cheap test - what could be tried first, and what it would show.',
+        '  7. What the owner will contribute - time, skills, access, money.',
+        '  8. What the owner wants from the community - testers, feedback, a collaborator.',
+        '  9. What would make them stop - the result that would kill the idea.',
+        '  10. How to verify this brief - links, dates, a named contact.',
         '- Answer with ONE JSON object and nothing else: no commentary, no code fences.',
         '',
         'Fields (JSON key, type, required, limit, what goes in it)',
@@ -568,6 +697,7 @@ function validate_project_submission(array $input, PDO $pdo): array
         'pitch' => trim((string) ($input['pitch'] ?? '')),
         'synopsis' => trim((string) ($input['synopsis'] ?? '')),
         'brief' => trim((string) ($input['brief'] ?? '')),
+        'stage' => (string) ($input['stage'] ?? 'live'),
         'status' => (string) ($input['status'] ?? ''),
         'arrangement' => (string) ($input['arrangement'] ?? ''),
         'category' => (string) ($input['category'] ?? ''),
@@ -615,15 +745,41 @@ function validate_project_submission(array $input, PDO $pdo): array
         $errors['synopsis'] = 'A synopsis is required.';
     }
 
+    if (!array_key_exists($data['stage'], stage_options())) {
+        $errors['stage'] = 'Choose a stage.';
+        $data['stage'] = 'live';
+    }
+
+    if ($data['stage'] === 'idea') {
+        // An idea has no users, revenue or handover yet. "None" is the honest
+        // answer, and defaulting it saves the owner from choosing a value that
+        // does not apply.
+        if ($data['revenue_state'] === '') {
+            $data['revenue_state'] = 'none';
+        }
+
+        if ($data['user_scope'] === '') {
+            $data['user_scope'] = 'none';
+        }
+
+        if ($data['readiness'] === '') {
+            $data['readiness'] = '0';
+        }
+    }
+
     if ($data['brief'] === '') {
-        $errors['brief'] = 'An Adoption Brief is required. It can be short, but it must say what a successor inherits.';
+        $errors['brief'] = 'A brief is required. It can be short, but it must say what someone would be taking on.';
     }
 
     if (!array_key_exists($data['status'], project_status_options())) {
         $errors['status'] = 'Choose a status.';
     }
 
-    if (!array_key_exists($data['arrangement'], arrangement_options())) {
+    if ($data['arrangement'] === '') {
+        if ($data['stage'] !== 'idea') {
+            $errors['arrangement'] = 'Choose an arrangement.';
+        }
+    } elseif (!array_key_exists($data['arrangement'], arrangement_options())) {
         $errors['arrangement'] = 'Choose an arrangement.';
     }
 
@@ -716,7 +872,7 @@ function create_project(PDO $pdo, int $ownerId, array $data): int
         $stmt = $pdo->prepare(
             "INSERT INTO projects (
                 slug, owner_id, title, pitch, synopsis, brief,
-                status, review_status, arrangement, category,
+                status, stage, review_status, arrangement, category,
                 revenue_state, revenue_model, monthly_cost, currency, cost_description,
                 effort_hours_per_month, effort_description,
                 user_scope, licence, readiness,
@@ -724,10 +880,10 @@ function create_project(PDO $pdo, int $ownerId, array $data): int
                 repo_url, site_url, docs_url, demo_url,
                 contact_mode, public_contact,
                 synopsis_ai_drafted, brief_ai_drafted,
-                confirmed_at
+                confirmed_at, expires_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?,
-                ?, 'pending', ?, ?,
+                ?, ?, 'pending', ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?,
                 ?, ?, ?,
@@ -735,7 +891,7 @@ function create_project(PDO $pdo, int $ownerId, array $data): int
                 ?, ?, ?, ?,
                 ?, ?,
                 ?, ?,
-                UTC_TIMESTAMP()
+                UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL " . EXPIRY_INTERVAL . ")
             )"
         );
 
@@ -747,7 +903,8 @@ function create_project(PDO $pdo, int $ownerId, array $data): int
             $data['synopsis'],
             $data['brief'] !== '' ? $data['brief'] : null,
             $data['status'],
-            $data['arrangement'],
+            $data['stage'] ?? 'live',
+            $data['arrangement'] !== '' ? $data['arrangement'] : null,
             $data['category'],
             $data['revenue_state'],
             $data['revenue_model'] !== '' ? $data['revenue_model'] : null,
@@ -777,10 +934,10 @@ function create_project(PDO $pdo, int $ownerId, array $data): int
         replace_project_relations($pdo, $projectId, $data);
 
         $audit = $pdo->prepare(
-            "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
-             VALUES (?, 'project.submitted', 'project', ?, ?, UTC_TIMESTAMP())"
+            "INSERT INTO audit_log (actor_user_id, subject_user_id, action, entity_type, entity_id, detail, created_at)
+             VALUES (?, ?, 'project.submitted', 'project', ?, ?, UTC_TIMESTAMP())"
         );
-        $audit->execute([$ownerId, $projectId, 'Submitted via /submit/']);
+        $audit->execute([$ownerId, $ownerId, $projectId, 'Submitted via /submit/']);
 
         $pdo->commit();
 
@@ -826,6 +983,7 @@ function project_form_data(array $project, array $relations = []): array
         'pitch' => (string) ($project['pitch'] ?? ''),
         'synopsis' => (string) ($project['synopsis'] ?? ''),
         'brief' => (string) ($project['brief'] ?? ''),
+        'stage' => (string) ($project['stage'] ?? 'live'),
         'status' => (string) ($project['status'] ?? ''),
         'arrangement' => (string) ($project['arrangement'] ?? ''),
         'category' => (string) ($project['category'] ?? ''),
@@ -870,6 +1028,11 @@ function project_data_to_form(array $data): array
     $form['brief_ai_drafted'] = !empty($data['brief_ai_drafted']) ? '1' : '';
     unset($form['confirm']);
 
+    // Revisions written before the stage axis existed describe live listings.
+    if (($form['stage'] ?? '') === '') {
+        $form['stage'] = 'live';
+    }
+
     return $form;
 }
 
@@ -904,14 +1067,15 @@ function replace_project_relations(PDO $pdo, int $projectId, array $data): void
 /**
  * Apply a validated submission or revision payload to a project row and
  * replace its keyword, skill, asset and obligation rows. The caller owns the
- * transaction and decides review_status, published_at and expires_at.
+ * transaction and decides review_status and published_at; the expiry moves out
+ * six months because the content has changed or been approved.
  */
 function apply_project_data(PDO $pdo, int $projectId, array $data, ?string $confirmedAt = null): void
 {
     $stmt = $pdo->prepare(
         "UPDATE projects SET
             title = ?, pitch = ?, synopsis = ?, brief = ?,
-            status = ?, arrangement = ?, category = ?,
+            status = ?, stage = ?, arrangement = ?, category = ?,
             revenue_state = ?, revenue_model = ?, monthly_cost = ?, currency = ?, cost_description = ?,
             effort_hours_per_month = ?, effort_description = ?,
             user_scope = ?, licence = ?, readiness = ?,
@@ -919,7 +1083,8 @@ function apply_project_data(PDO $pdo, int $projectId, array $data, ?string $conf
             repo_url = ?, site_url = ?, docs_url = ?, demo_url = ?,
             contact_mode = ?, public_contact = ?,
             synopsis_ai_drafted = ?, brief_ai_drafted = ?,
-            confirmed_at = COALESCE(?, UTC_TIMESTAMP())
+            confirmed_at = COALESCE(?, UTC_TIMESTAMP()),
+            expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL " . EXPIRY_INTERVAL . ")
          WHERE id = ?"
     );
 
@@ -929,7 +1094,8 @@ function apply_project_data(PDO $pdo, int $projectId, array $data, ?string $conf
         $data['synopsis'],
         $data['brief'] !== '' ? $data['brief'] : null,
         $data['status'],
-        $data['arrangement'],
+        $data['stage'] ?? 'live',
+        $data['arrangement'] !== '' ? $data['arrangement'] : null,
         $data['category'],
         $data['revenue_state'],
         $data['revenue_model'] !== '' ? $data['revenue_model'] : null,
@@ -957,55 +1123,6 @@ function apply_project_data(PDO $pdo, int $projectId, array $data, ?string $conf
     ]);
 
     replace_project_relations($pdo, $projectId, $data);
-}
-
-function create_or_update_revision(PDO $pdo, int $projectId, int $userId, array $data): int
-{
-    $payload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-    if ($payload === false) {
-        throw new RuntimeException('Could not encode the revision: ' . json_last_error_msg());
-    }
-
-    $stmt = $pdo->prepare(
-        "SELECT id FROM project_revisions
-         WHERE project_id = ? AND review_status = 'pending'
-         ORDER BY id DESC LIMIT 1"
-    );
-    $stmt->execute([$projectId]);
-    $revisionId = $stmt->fetchColumn();
-
-    if ($revisionId !== false) {
-        $update = $pdo->prepare(
-            'UPDATE project_revisions
-             SET created_by = ?, payload = ?, created_at = UTC_TIMESTAMP(), note = NULL
-             WHERE id = ?'
-        );
-        $update->execute([$userId, $payload, $revisionId]);
-
-        return (int) $revisionId;
-    }
-
-    $insert = $pdo->prepare(
-        "INSERT INTO project_revisions (project_id, created_by, payload, review_status, created_at)
-         VALUES (?, ?, ?, 'pending', UTC_TIMESTAMP())"
-    );
-    $insert->execute([$projectId, $userId, $payload]);
-
-    return (int) $pdo->lastInsertId();
-}
-
-function pending_revision(PDO $pdo, int $projectId): ?array
-{
-    $stmt = $pdo->prepare(
-        "SELECT * FROM project_revisions
-         WHERE project_id = ? AND review_status = 'pending'
-         ORDER BY id DESC LIMIT 1"
-    );
-    $stmt->execute([$projectId]);
-    $row = $stmt->fetch();
-
-    return $row === false ? null : $row;
 }
 
 /**
@@ -1063,9 +1180,13 @@ function reconfirm_url(string $rawToken): string
  */
 function reconfirm_project(PDO $pdo, int $projectId, ?int $actorUserId = null): void
 {
+    $ownerStmt = $pdo->prepare('SELECT owner_id FROM projects WHERE id = ?');
+    $ownerStmt->execute([$projectId]);
+    $ownerId = (int) $ownerStmt->fetchColumn();
+
     $stmt = $pdo->prepare(
         "UPDATE projects
-         SET expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 6 MONTH),
+         SET expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL " . EXPIRY_INTERVAL . "),
              confirmed_at = UTC_TIMESTAMP()
          WHERE id = ? AND review_status = 'approved'"
     );
@@ -1076,9 +1197,9 @@ function reconfirm_project(PDO $pdo, int $projectId, ?int $actorUserId = null): 
     }
 
     $pdo->prepare(
-        "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
-         VALUES (?, 'project.reconfirmed', 'project', ?, ?, UTC_TIMESTAMP())"
-    )->execute([$actorUserId, $projectId, 'Reconfirmed from the expiry reminder']);
+        "INSERT INTO audit_log (actor_user_id, subject_user_id, action, entity_type, entity_id, detail, created_at)
+         VALUES (?, ?, 'project.reconfirmed', 'project', ?, ?, UTC_TIMESTAMP())"
+    )->execute([$actorUserId, $ownerId, $projectId, 'Reconfirmed from the expiry reminder']);
 }
 
 /**
@@ -1111,7 +1232,7 @@ function project_delete_blockers(PDO $pdo, int $projectId): array
     $stmt->execute([$projectId]);
 
     if ((int) $stmt->fetchColumn() > 0) {
-        $blockers[] = 'A revision is waiting for review.';
+        $blockers[] = 'An earlier revision is waiting for a decision.';
     }
 
     return $blockers;
@@ -1122,7 +1243,7 @@ function project_delete_blockers(PDO $pdo, int $projectId): array
  */
 function delete_project(PDO $pdo, int $projectId, ?int $actorUserId = null): void
 {
-    $stmt = $pdo->prepare('SELECT slug, title FROM projects WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT slug, title, owner_id FROM projects WHERE id = ?');
     $stmt->execute([$projectId]);
     $project = $stmt->fetch();
 
@@ -1134,10 +1255,11 @@ function delete_project(PDO $pdo, int $projectId, ?int $actorUserId = null): voi
 
     try {
         $pdo->prepare(
-            "INSERT INTO audit_log (actor_user_id, action, entity_type, entity_id, detail, created_at)
-             VALUES (?, 'project.deleted', 'project', ?, ?, UTC_TIMESTAMP())"
+            "INSERT INTO audit_log (actor_user_id, subject_user_id, action, entity_type, entity_id, detail, created_at)
+             VALUES (?, ?, 'project.deleted', 'project', ?, ?, UTC_TIMESTAMP())"
         )->execute([
             $actorUserId,
+            (int) $project['owner_id'],
             $projectId,
             'Deleted "' . $project['title'] . '" (/' . $project['slug'] . '/)',
         ]);
@@ -1169,13 +1291,20 @@ function pending_listings(PDO $pdo, int $ownerId): int
 
 /**
  * Listings this account has created inside the window.
+ *
+ * Counted from the audit trail, not from `projects`: deleting a listing must
+ * not reset the account's window. `project.submitted` is written in the same
+ * transaction as the row, with the owner as the subject.
  */
 function new_listings_in_window(PDO $pdo, int $ownerId): int
 {
     $stmt = $pdo->prepare(
-        'SELECT COUNT(*) FROM projects
-         WHERE owner_id = ?
-           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)'
+        "SELECT COUNT(*)
+         FROM audit_log
+         WHERE action = 'project.submitted'
+           AND entity_type = 'project'
+           AND subject_user_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL " . SUBMIT_WINDOW_DAYS . " DAY)"
     );
     $stmt->execute([$ownerId]);
 
@@ -1189,10 +1318,12 @@ function new_listings_in_window(PDO $pdo, int $ownerId): int
 function new_listing_slot_at(PDO $pdo, int $ownerId): ?string
 {
     $stmt = $pdo->prepare(
-        'SELECT DATE_ADD(MIN(created_at), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)
-         FROM projects
-         WHERE owner_id = ?
-           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)'
+        "SELECT DATE_ADD(MIN(created_at), INTERVAL " . SUBMIT_WINDOW_DAYS . " DAY)
+         FROM audit_log
+         WHERE action = 'project.submitted'
+           AND entity_type = 'project'
+           AND subject_user_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL " . SUBMIT_WINDOW_DAYS . " DAY)"
     );
     $stmt->execute([$ownerId]);
     $value = $stmt->fetchColumn();
@@ -1203,20 +1334,19 @@ function new_listing_slot_at(PDO $pdo, int $ownerId): ?string
 /**
  * Rejections this account has collected inside the window.
  *
- * Counted from the audit trail rather than from the listings themselves: a
- * rejected listing that is resubmitted stops being rejected, but the record of
- * the decision should not disappear with it.
+ * Counted from the audit trail and attributed by `subject_user_id`, so a
+ * deleted or resubmitted listing cannot erase the record. A veto of a
+ * community-approved listing is a different action and does not count here.
  */
 function rejections_in_window(PDO $pdo, int $ownerId): int
 {
     $stmt = $pdo->prepare(
         "SELECT COUNT(*)
-         FROM audit_log a
-         JOIN projects p ON p.id = a.entity_id
-         WHERE a.action = 'project.rejected'
-           AND a.entity_type = 'project'
-           AND p.owner_id = ?
-           AND a.created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)"
+         FROM audit_log
+         WHERE action = 'project.rejected'
+           AND entity_type = 'project'
+           AND subject_user_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL " . SUBMIT_WINDOW_DAYS . " DAY)"
     );
     $stmt->execute([$ownerId]);
 
@@ -1233,13 +1363,12 @@ function submission_pause_until(PDO $pdo, int $ownerId): ?string
     }
 
     $stmt = $pdo->prepare(
-        "SELECT DATE_ADD(MIN(a.created_at), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)
-         FROM audit_log a
-         JOIN projects p ON p.id = a.entity_id
-         WHERE a.action = 'project.rejected'
-           AND a.entity_type = 'project'
-           AND p.owner_id = ?
-           AND a.created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . SUBMIT_WINDOW_DAYS . ' DAY)"
+        "SELECT DATE_ADD(MIN(created_at), INTERVAL " . SUBMIT_WINDOW_DAYS . " DAY)
+         FROM audit_log
+         WHERE action = 'project.rejected'
+           AND entity_type = 'project'
+           AND subject_user_id = ?
+           AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL " . SUBMIT_WINDOW_DAYS . " DAY)"
     );
     $stmt->execute([$ownerId]);
     $value = $stmt->fetchColumn();

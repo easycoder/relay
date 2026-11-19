@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/bootstrap.php';
 require dirname(__DIR__, 2) . '/src/html.php';
 require dirname(__DIR__, 2) . '/src/auth.php';
 require dirname(__DIR__, 2) . '/src/projects.php';
+require dirname(__DIR__, 2) . '/src/likes.php';
 
 $user = require_login();
 $pdo = db();
@@ -57,8 +58,14 @@ $project['owner_name'] = (string) $ownerStmt->fetchColumn();
 $categoryStmt = $pdo->prepare('SELECT name FROM categories WHERE slug = ?');
 $categoryStmt->execute([$project['category']]);
 $project['category_name'] = (string) $categoryStmt->fetchColumn();
+$project['like_count'] = project_endorsement_count($pdo, (int) $project['id']);
 
-$listing = render_template('project', ['project' => $project, 'siteUrl' => '']);
+$listing = render_template('project', [
+    'project' => $project,
+    'siteUrl' => '',
+    'backUrl' => '/dashboard/',
+    'backText' => 'Dashboard',
+]);
 
 $notice = $project['review_status'] === 'approved'
     ? 'This listing is live. This is the owner preview of the current page.'

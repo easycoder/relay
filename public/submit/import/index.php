@@ -83,6 +83,7 @@ $content = render_template('submit', [
     'errors' => $errors,
     'old' => $old,
     'csrf' => csrf_token(),
+    'stages' => stage_options(),
     'statuses' => project_status_options(),
     'arrangements' => arrangement_options(),
     'revenueStates' => revenue_state_options(),

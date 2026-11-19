@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errors === []) {
             . ' listings were rejected in the last ' . SUBMIT_WINDOW_DAYS . ' days.';
     } elseif ($pendingCount >= SUBMIT_PENDING_LIMIT) {
         $errors['form'] = 'You already have ' . SUBMIT_PENDING_LIMIT
-            . ' listings waiting for review. Wait for a decision on one of them before submitting another.';
+            . ' listings pending approval. Wait for a decision on one of them before submitting another.';
     } elseif ($listingsUsed >= SUBMIT_WINDOW_LIMIT) {
         $errors['form'] = 'You have submitted ' . SUBMIT_WINDOW_LIMIT . ' listings in the last '
             . SUBMIT_WINDOW_DAYS . ' days. Another one is possible from '
@@ -84,8 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $errors === []) {
                 // The queue is pull-only otherwise: the operator finds out by
                 // remembering to look. One email per entry, after the save.
                 notify_admin(
-                    'New listing awaiting review — ' . $data['title'],
-                    "A new listing is waiting for review.\n\n"
+                    'New listing pending approval — ' . $data['title'],
+                    "A new listing is pending approval.\n\n"
                     . 'Title: ' . $data['title'] . "\n"
                     . 'Owner: ' . $user['display_name'] . ' <' . $user['email'] . ">\n\n"
                     . 'Review it: ' . site_url() . "/review/\n",
@@ -115,6 +115,7 @@ $content = render_template('submit', [
     'errors' => $errors,
     'old' => $old,
     'csrf' => csrf_token(),
+    'stages' => stage_options(),
     'statuses' => project_status_options(),
     'arrangements' => arrangement_options(),
     'revenueStates' => revenue_state_options(),

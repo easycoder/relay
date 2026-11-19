@@ -13,6 +13,9 @@ deploy.conf
 # Application log (storage/error.log); written on the server, never committed
 /storage/
 
+# Session conversation logs (local only, never committed)
+/conversation/
+
 # Local tooling
 /various/
 /vendor/
@@ -28,3 +31,4 @@ deploy.conf
 /public/sitemap.xml
 /public/robots.txt
 /public/learn/
+/public/about/

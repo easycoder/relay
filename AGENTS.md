@@ -1,313 +1,125 @@
-# AllSpeak Project — Agent Instructions
-
-## Language
-
-This is an **English** AllSpeak project. Communicate with the user in English. Generate AllSpeak scripts using English keywords.
-
-## What is AllSpeak
-
-AllSpeak is a scripting language designed to read like natural human language. Scripts use the `.allspeak` file extension. AllSpeak runs in the browser (JavaScript version) or from the terminal (Python version) — or both together.
-
-AllSpeak uses an **AI-writes, human-reviews** workflow. The AI generates `.allspeak` code; the human checks that it reads sensibly and questions anything unclear. Use the full language — don't avoid a command because it might be unfamiliar. The human only needs to read it, not write it from memory.
-
-## Reference — read this when writing AllSpeak
-
-The complete AllSpeak language reference and idioms live at:
-
-  **https://allspeak.ai/learn/**
-
-The site has 20 reference files (`reference/`) and 15 idiom files (`idioms/`). When you need to look up syntax, runtime behaviour, or idiomatic patterns, consult it rather than relying on training data — AllSpeak's vocabulary doesn't always match what AI was trained on, and the curriculum corrects for that.
-
-**Read `learn/contents.md` first** — it is the canonical index of file paths. Use those exact paths when fetching specific files; do not guess slugs. (For example: the file is `learn/idioms/02-event-handlers-and-array-index.md`, not `02-event-handlers.md`.)
-
-Recommended first reads:
-
-- `learn/idioms/12-working-with-ai.md` — the AI-writes / human-reviews workflow and the common mistakes AI makes on AllSpeak.
-- `learn/reference/16-doc-blocks.md` — the documentation convention used in every section of code (see "Required practices" below).
-- `learn/reference/02-symbols-and-layout.md` — the four punctuation symbols and the lexical surface.
-- `learn/reference/03-variables-and-arrays.md` — the cursor model that variables follow.
-- `learn/reference/09-control-flow.md` — `if`, `while`, `gosub`, `stop`.
-- `learn/idioms/01-cat-and-string-building.md` — `cat`, the single most common AI mistake.
-
-## Required practices
-
-Two practices apply to every piece of AllSpeak code written in this project, including the initial setup:
-
-### 1. Doc blocks on every section
-
-Every contiguous section of code is wrapped in a `!! … !!!` doc block, with prose explaining *why* the section exists.
-
-**Open with one tight sentence on its own line**, then a bare `!!` paragraph break, then any further detail. This keeps Blocks-mode legible at a glance — the reader sees a summary, with the elaboration available below if they want more. Don't pile every detail into the first line; the code already shows the details.
-
-Example:
-
-```
-!! Build the board: nine cells arranged as a 3x3 grid.
-!!
-!! Each cell is a div sized by the CSS-grid layout. A single click handler is shared by all cells; it reads `the index of Cell` to discover which one fired.
-
-    div Cell
-    set the elements of Cell to 9
-    put 0 into N
-    while N is less than 9 begin
-        index Cell to N
-        create Cell in Board
-        add 1 to N
-    end
-
-    on click Cell gosub HandleClick
-!!!
-```
-
-Add doc blocks **as you write** — not after. The prose forces you to state intent in plain language, which surfaces mistakes (a doc block saying "creates 9 cells" while the code creates 1 makes the mismatch obvious before you ever run it). See `learn/reference/16-doc-blocks.md` for the full convention.
-
-After any code edit, fetch the analyser and run it. The checks are *published* rather than shipped, so that a project never holds a copy that has gone stale — fetch the one you need into your own scratch directory, not into the project (the `.txt` is because the site runs `.py` files rather than serving them — save it as `asdoc-check.py`):
-
-```
-curl -fsS https://allspeak.ai/code/tools/asdoc-check.txt -o /tmp/asdoc-check.py
-python3 /tmp/asdoc-check.py --write <file>
-```
-
-This refreshes the `@hash` lines in each block so that future edits can detect drift between prose and code.
-
-The other checks are published the same way and fetched by name from `https://allspeak.ai/code/tools/` — `attr-check.js`, `capture-check.js`, `encoding-check.js`, `flush-check.js`, `guard-check.js`, `opcode-check.js`, `plotview-check.js`, and `viz-align-measure.py` (a `.py` file travels as `.txt`). **Most of them need a checkout of the AllSpeak repository rather than a project, because they run the runtime from `js/` or `allspeak-py/`; each says so in its own words and stops** rather than failing on a missing file.
-
-### 2. Consult `learn/` before writing, not after
-
-Before producing code that uses a feature you haven't already used in this project, fetch the relevant `learn/` file. Don't guess from training data — fetch the reference, read it, then write. This is especially true for: `cat` placement, failure clauses (`or` vs `on failure`), arrays of DOM elements (`create` must be inside a loop with the cursor set, not outside), and `set the content of` with markdown.
-
-## Common mistakes to avoid
-
-Even with the reference in front of you, AI tools reliably get these wrong on AllSpeak. Keep them in mind:
-
-- **`cat` is infix.** It goes BETWEEN two values, never before the first.
-  - ✓ `put \`Hello, \` cat Name cat \`!\` into Greeting`
-  - ✗ `put cat \`Hello, \` cat Name into Greeting` (leading `cat` — parse error)
-  - ✗ `put \`Hello, \` Name \`!\` into Greeting` (missing `cat` — no implicit concatenation)
-
-- **No `for` or `for each` loops.** Use `while` with a counter, or a label-driven loop. See `learn/idioms/03-looping-patterns.md`.
-
-- **Arithmetic uses keywords, not operators.** `add 1 to Counter`, not `Counter += 1` or `Counter = Counter + 1`.
-
-- **No parentheses for grouping.** `(A + B) * C` doesn't exist. Compute into a temporary variable.
-
-- **No `else if` shortcut.** `if … else if … else …` works (it's `else` followed by another `if`), but `elif` doesn't exist. No `case` / `switch` either.
-
-- **Two failure clauses with different behaviour.** `or` runs the clause then stops the thread. `on failure` runs the clause then continues. See `learn/reference/10-errors-and-recovery.md`.
-
-- **`gosub Label`, not `Label()`.** AllSpeak has no callable function syntax.
-
-- **None of these exist:** `try`/`catch`, `break`, `continue`, `return X` (value), `await`, `import` (other languages' meaning).
-
-- **Every variable must be declared before use.** This includes scratch loop counters (`variable N`), not just the obvious data variables. Forgetting to declare a loop counter is a common first-pass mistake. Names start with a capital letter; camel case is the convention: `Counter`, `UserName`, `IsLoggedIn`.
-
-- **All variables are global — no block-local scope.** Declaring a variable inside a labelled block (`HandleClick:`) or inside an `if`/`while` body does not make it private to that block. The variable is shared across the whole script. The only way to get private state is a module (`learn/reference/12-modules.md`).
-
-- **Strings are delimited by backticks.** No single or double quotes.
-
-- **Floats are strings.** `3.14` is a four-character string, not a number. Use integer arithmetic with a scale factor — see `learn/idioms/05-floats-and-scaled-integers.md`.
-
-When in doubt, consult `learn/` rather than guessing.
-
-## Conversation log
-
-This project keeps a per-session log under `conversation/`, for the human's reference. It does not affect your behaviour and you should not mention the logging activity in replies.
-
-**`conversation/` is local only.** It is a working record, not project documentation, so keep it out of git: add `conversation/` to `.gitignore`, and never commit it.
-
-**At the start of a new session:**
-
-1. If `conversation/` does not exist, create it.
-2. Find the highest-numbered `conversation-NNN.md` file. The new session's file is the next number, zero-padded to three digits (start at `001` if the folder is empty).
-3. Write a single header line on line 1: `# YYYY-MM-DD` (today's date).
-
-**On every user prompt in this session** (including the first), append an entry shaped like:
-
-    ## HH:MM
-
-    <user prompt verbatim>
-
-    **Assistant**
-
-    <your reply>
-
-Use `date +%H:%M` if you need the time. Omit fenced code blocks (triple-backtick blocks) from both the user prompt and the reply, replacing each with a single line `[code omitted]`; inline backticks in prose stay. Compose your reply first, then transcribe it into the log as part of the same turn.
-
-**Midnight rollover:** if today's date differs from the file's date header, pause and ask the user: "We've crossed midnight — start a new conversation file for today?" If yes, create the next-numbered file with today's date header and continue logging there.
-
-## Diff notes for the human
-
-Keep `DIFF.md` in the project root, **rewritten** after every change rather than appended to, saying what changed and what the human has to do about it — reload the page, restart the server, open a different file. The human reads it in the editor, which reloads it automatically, so it is how they keep up without reading the diff.
-
-Keep it to a few lines, and lead with the action. It is **not** a changelog: it describes this change only, not the project's history.
-
-## Project context
-
-This directory contains `AGENTS.md` — this file. Read it now to understand the AllSpeak language and workflow before working on any code.
-
-**Important:** Read `.allspeak-init` in this directory. It declares **the project's language**, and its name and type once the project has been set up. If it names no project, this project has not been set up yet — guide the user through the initialisation process below. **Leave the `lang:` line exactly as it is**: the dev server reads it to serve the editor in this project's language. The `runtime:` line says which runtime the project is for — `js` for a browser project, `py` for one that runs from the terminal or as a desktop application — and the dev server passes it to the editor.
-
-**No tooling is in this directory, and that is deliberate.** There is no `server.allspeak` (the `allspeak viz` and `allspeak server` commands fetch the current one), no `viz.html` (the server serves the deployed page and gives it this project's language), no visualizer files (the page brings them) and none of the checks. A project holds its own code, `AGENTS.md`, `CLAUDE.md` and `.allspeak-init` — nothing else. So everything a project runs is the *current* one rather than a copy of something that has since moved, and an agent should neither look for those files locally nor add them.
-
-### Initialisation process
-
-1. **Greet the user** and briefly explain what AllSpeak is — a scripting language that reads like plain English, designed so AI writes the code and the user reviews it.
-
-2. **Ask the user for the project name.** This will be used as the script name and in filenames.
-
-3. **Ask whether this is a command-line project, a GUI project, or both.**
-
-4. **Create the project files** based on the answer:
-
-   - **Command-line**: Create `<project>.allspeak` from the CLI template below.
-   - **GUI**: Create `<project>.html`, `<project>-main.allspeak`, and `<project>.json` from the GUI templates below.
-   - **Both**: Create all files.
-
-5. **Complete `.allspeak-init`** — add the project name and type (cli/gui/both) so this setup is not repeated, leaving the `lang:` line that is already there. **If this project is a CLI or desktop one, change `runtime:` to `py`** — it is `js` by default, and a marker on each script is how a mixed project says otherwise.
-
-6. **Tell the user the project files are ready and where to view them.**
-
-   The AllSpeak server is already running — the user started it with `allspeak viz`, which also opened the visualizer in their browser. Do NOT attempt to start or restart the server yourself. It is already serving files in another terminal. There is deliberately no `server.allspeak` in this directory: the `allspeak` command fetches the current one.
-
-   If it is *not* running, the user starts it with `allspeak viz` (the visualizer) or `allspeak server` (the server alone, opening nothing). If either complains that `server.allspeak` is missing, the `allspeak` command predates this project: `pip install -U allspeak-ai`, then start it again.
-
-   After creating the project files, tell the user:
-
-   > Your project files are ready. Open these in your browser:
-   > - http://localhost:8080/viz.html — the visualizer
-   > - http://localhost:8080/<project>.html — your project page
-
-   Replace `<project>` with the actual project name.
-
-   - **CLI**: Tell the user to run their script with `allspeak <project>` (the `.allspeak` extension is optional). They can also open http://localhost:8080/viz.html to use the browser-based visualizer if they prefer.
-
-7. **Walk the user through how the files work together.** For GUI projects, explain:
-
-   - The HTML file is just a launcher — it loads the AllSpeak runtime and runs a tiny bootstrap script that fetches the main `.allspeak` file.
-   - The `.allspeak` file is the program logic. It creates a body element, fetches the `.json` layout, and uses `render` to turn the JSON into real page elements. It then `attach`es to those elements by their `@id` to interact with them.
-   - The `.json` file defines the page layout using Webson — a JSON format where keys like `#element` create HTML elements, `@id` (and any `@<name>`) set attributes, `#content` sets text, `$Name` defines named components, `#` lists children, and any other key is a CSS style. Full details in `learn/reference/14-browser-and-webson.md`.
-   - This separation means the layout can be changed without touching the code, and vice versa.
-
-   For CLI projects, explain that the `.allspeak` file is a standalone script run from the terminal, and walk through what each line does.
-
-8. **About the visualizer.** The browser-based visualizer (`viz.html`) provides syntax-highlighted editing for `.allspeak`, `.json`, `.html` and other project files. The user should already have it open at http://localhost:8080/viz.html from the previous step. For CLI projects, the user can also open it there — no separate start command is needed since the server is already running.
-
-9. **Ask what they'd like to build.** From here, just respond to what the user wants.
-
----
-
-**If `.allspeak-init` DOES exist**, skip initialisation and proceed normally. Read `.allspeak-init` to learn the project name and type.
-
----
-
-## CLI template
-
-```
-!   <project>.allspeak
-
-    script <Project>
-
-!! Entry point: log a greeting and exit. Replace this with the project's actual logic, keeping each contiguous code section wrapped in its own doc block.
-
-    variable Message
-    put `Hello from <Project>` into Message
-    log Message
-
-    exit
-!!!
+# Relay — agent instructions
+
+Relay is a free, open-source registry and introduction service for work that needs someone next. It is not a code marketplace, a broker, an escrow service or a handover authority. Read `PROPOSAL.md` for the product shape and `README.md` for operations.
+
+## What a listing is
+
+A listing has two independent axes:
+
+- **Stage** — `idea` (not built yet), `prototype` (part-built) or `live` (in use). This is `projects.stage`.
+- **Intent** — what the owner is looking for: a successor, a collaborator, testers, feedback, a buyer, a temporary steward. This is `projects.status`.
+
+The stage decides which fields matter. An idea has no repository, users, revenue or handover yet; a live project has all of them. The brief is called an **Idea Brief**, **Project Brief** or **Adoption Brief** depending on the stage, but it is one `projects.brief` column. Do not force handover fields on an idea.
+
+A published listing carries a six-month expiry. A pending submission has the same clock. `scripts/expiry-reminders.php` warns owners of approved listings before they leave the catalogue; a reconfirmation pushes the expiry out six months. Expired rows stay in the database but are excluded by the build and by search.
+
+## Review and community approval
+
+`projects.review_status` is `pending`, `approved`, `rejected` or `taken_down`. Only approved rows are built into the catalogue. The rules are deliberate:
+
+1. A new submission is `pending`. It appears in the waiting list at `/find/?view=pending` and on `/waiting/?slug=…`, both `noindex`. It is not in the catalogue, `projects.json` or the sitemap.
+2. A pending listing can be liked. A like requires a written reason (`project_likes.reason`), one account may like a listing once, the owner cannot like their own listing, and the account must be older than `like_min_account_age_days`. There is also a per-IP daily cap.
+3. When the like count reaches `like_threshold` (default 5) and `auto_approval_blocked` is 0, `record_endorsement()` approves the listing through `review_project()` with `approval_source = 'community'`. The threshold and gates are in the `community` block of the config.
+4. A person can approve or reject any listing at `/review/` or with `php scripts/review.php`. A rejection requires a reason (shown to the owner) and sets `auto_approval_blocked = 1`. Likes cannot override a rejection; the owner must edit and resubmit, and a person must approve it. Resubmission clears the likes, because they were about the old content.
+5. A reviewer can veto a community approval. A veto is recorded as `project.vetoed`, sets `review_status = 'rejected'` and blocks automatic approval. It does not count as a submission strike, because the owner did not resubmit anything.
+6. An edit to a live listing applies immediately through `record_live_edit()`. The listing is marked Edited (`edited_at`, `edit_review_status = 'pending'`) and joins the **Recently edited** list on `/review/` for `edit_review_days` (default 14) days. If nobody acts, the build's `accept_stale_edits()` accepts it and the Edited marker disappears. A reviewer can `accept_edit()` or `take_down_project()`; a take-down needs a reason, sets `review_status = 'taken_down'`, emails the owner and removes the page on the next build. A correction goes back through initial review. Legacy pending revisions are superseded by a live edit.
+7. A pending, rejected or taken-down listing is updated in place and returns to initial review. Its likes are cleared, and `auto_approval_blocked` keeps a rejected or taken-down correction out of automatic approval.
+8. Approving a listing does not publish it on its own. Run `php scripts/build.php` or press **Publish now** on `/review/`. The build takes a lock, so a cron build and a button press cannot interleave. A take-down also needs a build to remove the page.
+
+The operator notifications are controlled by `mail.admin` in the config; leave it empty to send none. Live edits are not emailed to the operator; they appear in the re-review list. A take-down emails the owner.
+
+## Data and audit invariants
+
+- `review_project()` in `src/review.php` handles an initial-review decision: it sets `review_status`, `published_at`, `expires_at`, `approval_source`, `auto_approval_blocked`, clears `review_diff`, sets `edit_review_status = 'accepted'` and writes the audit row. A live edit uses `record_live_edit()` instead: it applies the data, sets `edited_at` and `edit_review_status = 'pending'`, stores the diff, clears the approval source and note, and supersedes any legacy pending revision. `accept_edit()` accepts; `take_down_project()` sets `taken_down`, emails the owner and blocks automatic approval; `accept_stale_edits()` accepts edits whose window has passed.
+- The review diff is generated at submission by `src/diff.php` and stored in `projects.review_diff` for any edit, live or pending. Legacy revision rows keep theirs in `project_revisions.diff`. Do not recompute it at review time; it is the owner's change as submitted.
+- The public Edited marker is `edit_marker_visible()`: an approved listing with `edit_review_status = 'pending'` and an `edited_at` inside `edit_review_days`. Accepting the edit, taking it down, or the window passing removes it. Do not show it after acceptance.
+- `taken_down` is a review status: the listing is not in the catalogue, the waiting list or the re-review list. The owner sees the reason on the dashboard and the edit form; a correction returns to initial review.
+- `audit_log.subject_user_id` is the person an event is about, normally the owner. Submission and rejection limits count from `audit_log`, not from `projects`, so deleting a listing cannot reset the window or erase a strike. Set the subject on every project audit row.
+- `project_likes` has a unique `(project_id, user_id)` key. The like reason is public on the waiting page and shown to reviewers; treat it as personal data and keep it out of the catalogue.
+- `clear_project_likes()` is called when a pending, rejected or taken-down listing is edited. Do not carry likes across a content change.
+- The build only includes approved, non-expired rows whose status is not `draft` or `archived`. Search mirrors that rule; `search_where()` is the shared clause builder.
+- Keep pending rows out of `projects.json`, the sitemap, the home page and feeds.
+
+## Stack and layout
+
+- PHP 8 with PDO and prepared statements. No framework.
+- MySQL/MariaDB, `utf8mb4`, InnoDB. `db/schema.sql` is the baseline; numbered migrations in `db/migrations/`.
+- Public catalogue: pre-rendered HTML written by `src/build.php` to `public/home.html`, `public/projects/`, `public/learn/`, `public/about/`, `public/projects.json`, `public/sitemap.xml` and `public/robots.txt`. Generated files are gitignored and produced on the server.
+- Interactive surfaces: PHP rendered per request (`public/find/`, `public/submit/`, `public/dashboard/`, `public/review/`, `public/interests/`, `public/waiting/`, `public/like/`).
+- Templates live in `templates/`; helpers and escaping in `src/html.php`.
+- The site must work with JavaScript off. JavaScript may enhance a page, never gate it.
+- JSON is the machine interface: `/projects.json` for the whole catalogue and `/find/?format=json` for a filtered view.
+- `/find/` defaults to approved entries in random order, 10 per page. `per_page` offers 10/20/50, `sort` offers random/recent, and the random seed is kept in page links so More continues the same order. Cards and entry pages show the like count when it is above zero, plus an Approved/Pending approval flag. The approved flag is `review_status = 'approved'`; the count is the number of `project_likes` rows. There is one `projects` table: pending is a view, not a separate queue.
+
+### Where things live
+
+| Path | Purpose |
+|---|---|
+| `bootstrap.php` | Config discovery, PDO, `app_log()` |
+| `src/projects.php` | Field definitions, validation, creation, edit-review helpers, limits, AI prompt |
+| `src/review.php` | `review_project()`, `veto_project()`, `review_revision()`, `record_live_edit()`, `accept_edit()`, `take_down_project()` |
+| `src/diff.php` | Submission-time diff and the CSS-only review tabs |
+| `src/likes.php` | Like rules, recording, threshold approval, clearing |
+| `src/search.php` | `search_filters_from()`, `search_where()`, results and facet counts |
+| `src/build.php` | Catalogue build, stale-edit sweep and lock |
+| `src/auth.php` | Magic links, sessions, remembered accounts, mail |
+| `src/interests.php` | Expressions of interest |
+| `public/` | Web entry points |
+| `templates/` | Server-rendered views |
+| `db/` | Schema, migrations, content import |
+| `scripts/` | Build, review CLI, expiry reminders, DB check |
+
+## Conventions
+
+- Start PHP files with `declare(strict_types=1);`.
+- Write doc comments that say **why** a block exists, not what the syntax does. Keep functions small and named after the domain.
+- Escape every dynamic value with `e()`. Render Markdown only through `render_markdown()`, which escapes first. Use prepared statements; never interpolate user input into SQL.
+- CSRF-check every state-changing POST. Use the existing `csrf_token()` / `verify_csrf()`.
+- No secrets or personal data in the repository. The config file sits above the web root on the server; `config.php` is gitignored locally.
+- Numbered migrations only. Apply one once, in order, before deploying code that depends on it. Never edit an applied migration.
+- After a content, template or CSS change that affects generated pages, rebuild. CSS alone is static.
+- Keep `DIFF.md` at the project root, **rewritten** after every change, leading with the action the human must take. It is not a changelog.
+- Session conversation notes under `conversation/` are local only and gitignored.
+- Do not add AllSpeak files or `.allspeak` code. This project is PHP. `.allspeak-init` is retained only because the local visualizer reads it; it does not make Relay an AllSpeak project.
+
+## Verify
+
+There is no automated test suite. At minimum:
+
+```sh
+# Syntax check every PHP file
+find . -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -l
+
+# On the server, after the config is in place
+php scripts/db-check.php
 ```
 
-## GUI template
+For a change that touches the review flow, exercise it end to end on a local or staging database:
 
-A GUI project uses three files:
+1. Submit a listing at `/submit/` with stage `idea`, then check it appears at `/find/?view=pending` and `/waiting/?slug=…`.
+2. Like it from a second account older than the gate; check the reason appears and the count rises.
+3. Reach the threshold and check the listing is approved with `approval_source='community'`; run the build and confirm it appears at `/projects/…`.
+4. Reject another listing; confirm the owner sees the reason and that further likes do not approve it.
+5. Veto a community approval on `/review/`; confirm `project.vetoed` is in the audit log and no strike is counted.
+6. Let a listing expire; confirm search and the build exclude it, and the dashboard says so.
+7. Edit a live listing, change one word, and confirm it stays live, shows Edited, and appears under Recently edited with Changes / Full text.
+8. Accept the edit; the marker goes. Edit again and take it down with a reason; confirm the listing leaves the catalogue, the owner is emailed and a correction returns to initial review.
 
-- **`<project>.html`** — minimal HTML launcher
-- **`<project>-main.allspeak`** — AllSpeak script (code)
-- **`<project>.json`** — Webson layout (UI definition as JSON)
+## Deployment
 
-### `<project>.html`
-
-```html
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><Project></title>
-</head>
-<body>
-    <pre id="allspeak-script" style="display:none">
-    variable Script
-    rest get Script from `<project>-main.allspeak`
-    run Script
-    </pre>
-    <script>
-    (function() {
-        var t = Date.now();
-        var s = document.createElement('script');
-        s.src = 'https://allspeak.ai/dist/allspeak.js?v=' + t;
-        s.onload = function() { AllSpeak_Startup(); };
-        document.head.appendChild(s);
-    })();
-    </script>
-</body>
-</html>
+```sh
+./deploy.sh                  # push the repository
+./deploy.sh --build          # push, then build on the server
+./deploy.sh --delete         # mirror, removing stale files
+DEPLOY_DRY_RUN=1 ./deploy.sh # print the rsync command only
 ```
 
-### `<project>-main.allspeak`
+The current DreamHost vhost serves the repository root; `index.php` serves `public/index.php`, and `.htaccess` denies source paths. The config is `relay.eclecity.net.txt` one level above the web root. Schedule `scripts/expiry-reminders.php` daily and a build soon after, so approvals and expiries do not wait for a button press. See `README.md` for the exact commands.
 
-```
-!   <project>-main.allspeak
+## Boundaries
 
-    script <Project>
-
-!! Boot the GUI: render the Webson layout into the body and attach to the elements the rest of the script will manipulate. Each subsequent section of code should get its own doc block.
-
-    div Body
-    variable Layout
-
-    create Body
-    rest get Layout from `<project>.json`
-    render Layout in Body
-
-    div Display
-    attach Display to `display`
-    set the content of Display to `Hello from <Project>`
-
-    stop
-!!!
-```
-
-### `<project>.json`
-
-```json
-{
-    "#doc": "<Project> layout",
-    "#element": "div",
-    "@id": "page",
-    "font-family": "sans-serif",
-    "margin": "2em",
-    "#": ["$Display"],
-
-    "$Display": {
-        "#element": "div",
-        "@id": "display",
-        "padding": "1em",
-        "border": "1px solid #ccc",
-        "min-height": "4em"
-    }
-}
-```
-
-In all templates, replace `<project>` with the project name (lowercase for filenames) and `<Project>` with the capitalised project name.
-
----
-
-## Language extension policy
-
-If a needed construct does not exist in AllSpeak, **do not invent syntax**. Instead, pause and propose a new command to the user, keeping it consistent with AllSpeak's English-like style.
-
-## Feature requests (REQUESTS.md)
-
-When a task needs a feature that the AllSpeak dialect or the pinned JS runtime does not provide, do not only work around it. Append an entry to `REQUESTS.md` at the project root — creating the file if it does not exist yet — as soon as the workaround is chosen: date, area, request, workaround, status. Mention it in the end-of-session summary. The list is the hand-off for arranging the feature; a wished-for feature must not live only in the conversation.
-
-The AllSpeak repository's own `AGENTS.md` and `REQUESTS.md` are the primary home for language and runtime requests; this list is the project's side of the record. Carry upstream requests to AllSpeak in an AllSpeak-anchored session rather than editing a mirrored copy.
+- Do not turn Relay into a job board, a marketplace, an escrow service or a paid-placement directory.
+- Do not ask for passphrases, production credentials, customer data or payment details.
+- Do not add third-party tracking or a cookie banner.
+- Do not remove the six-month expiry, the time-limited Edited marker and re-review window, or the rule that a person can reject, veto or take down any listing.
+- Do not make the public catalogue depend on JavaScript.

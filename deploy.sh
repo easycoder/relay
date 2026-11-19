@@ -114,6 +114,7 @@ EXCLUDES=(
     --exclude='public/sitemap.xml'
     --exclude='public/robots.txt'
     --exclude='public/learn/'
+    --exclude='public/about/'
 )
 
 RSYNC=(rsync -rztvz --no-perms)

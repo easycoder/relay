@@ -6,6 +6,7 @@
 /** @var array<string, mixed> $old */
 /** @var string $csrf */
 /** @var array<string, string> $statuses */
+/** @var array<string, string> $stages */
 /** @var array<string, string> $arrangements */
 /** @var array<string, string> $revenueStates */
 /** @var array<string, string> $userScopes */
@@ -31,7 +32,7 @@
 
 $eyebrow = $eyebrow ?? 'Submit';
 $heading = $heading ?? 'Describe a project';
-$intro = $intro ?? "The listing is published after a person reviews it. The brief is the part an adopter's agent will read first; make it honest.";
+$intro = $intro ?? "A listing may describe a live project, a prototype or an idea. It is reviewed by a person, or approved by a threshold of reasoned likes unless a reviewer asks to see it. The brief is the part a reader's agent will read first; make it honest.";
 $formAction = $formAction ?? '/submit/';
 $submitLabel = $submitLabel ?? 'Submit for review';
 $notice = $notice ?? '';
@@ -118,7 +119,7 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
 <?php endif; ?>
 
 <?php if ((int) $listingsLimit > 0 && $submissionPauseUntil === null): ?>
-    <p class="meta">New listings: <?= (int) $listingsUsed ?> of <?= (int) $listingsLimit ?> in the last <?= (int) $listingsWindowDays ?> days. Up to <?= (int) $pendingLimit ?> may be waiting for review at once<?php if ((int) $pendingLimit > 0): ?> (<?= (int) $pendingCount ?> now)<?php endif; ?>.</p>
+    <p class="meta">New listings: <?= (int) $listingsUsed ?> of <?= (int) $listingsLimit ?> in the last <?= (int) $listingsWindowDays ?> days. Up to <?= (int) $pendingLimit ?> may be pending approval at once<?php if ((int) $pendingLimit > 0): ?> (<?= (int) $pendingCount ?> now)<?php endif; ?>.</p>
 <?php endif; ?>
 
 <?php if ((int) $resubmissionLimit > 0): ?>
@@ -140,6 +141,16 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
         <legend>The project</legend>
 
         <label class="field">
+            <span>Stage</span>
+            <select name="stage" required>
+                <?php foreach ($stages as $value => $label): ?>
+                    <option value="<?= e($value) ?>"<?= form_selected($old, 'stage', $value, 'live') ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <small>An idea has no repository or users yet. A prototype is part-built. A live project is in use.</small>
+        </label>
+
+        <label class="field">
             <span>Title</span>
             <input type="text" name="title" value="<?= e(form_value($old, 'title')) ?>" maxlength="200" required>
         </label>
@@ -157,10 +168,22 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
         </label>
 
         <label class="field">
-            <span>Adoption Brief (Markdown)</span>
+            <span><span id="brief-label"><?= e(brief_label(form_value($old, 'stage', 'live'))) ?></span> (Markdown)</span>
             <textarea name="brief" rows="16" required><?= e(form_value($old, 'brief')) ?></textarea>
-            <small>Use ## headings and - lists. Cover what a successor inherits, the state of play, the first 30 days, what is not for transfer and how to verify it.</small>
+            <small>Use ## headings and - lists. Live: what a successor inherits, how to run it, the state of play and the first 30 days. Prototype: what works, what is unfinished and what it needs next. Idea: the problem, prior art, evidence and a cheap test.</small>
         </label>
+
+        <script>
+        (function () {
+            var stage = document.querySelector('select[name="stage"]');
+            var label = document.getElementById('brief-label');
+            if (!stage || !label) return;
+            var names = { idea: 'Idea Brief', prototype: 'Project Brief', live: 'Adoption Brief' };
+            stage.addEventListener('change', function () {
+                label.textContent = names[stage.value] || 'Brief';
+            });
+        })();
+        </script>
     </fieldset>
 
     <fieldset>
@@ -178,12 +201,13 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
 
             <label class="field">
                 <span>Arrangement</span>
-                <select name="arrangement" required>
-                    <option value="">Choose…</option>
+                <select name="arrangement">
+                    <option value="">Not decided yet</option>
                     <?php foreach ($arrangements as $value => $label): ?>
                         <option value="<?= e($value) ?>"<?= form_selected($old, 'arrangement', $value) ?>><?= e($label) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <small>Required for a live project or a prototype. An idea can leave this blank.</small>
             </label>
 
             <label class="field">
@@ -308,7 +332,7 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
         </label>
 
         <fieldset class="checks">
-            <legend>What a successor inherits</legend>
+            <legend>What comes with it, if anything</legend>
             <?php foreach ($assets as $value => $label): ?>
                 <label class="check"><input type="checkbox" name="assets[]" value="<?= e($value) ?>"<?= form_checked($old, 'assets', $value) ?>> <?= e($label) ?></label>
             <?php endforeach; ?>
@@ -343,7 +367,7 @@ $saveDisabled = $resubmitOpenAt !== null || $submissionPauseUntil !== null;
 
         <label class="check"><input type="checkbox" name="confirm" value="1" required<?= form_checked($old, 'confirm', '1') ?>> I confirm that this description is accurate and that I am the owner or an authorised representative.</label>
 
-        <p class="meta">Submissions are reviewed by a person before publication. Nothing is published automatically.</p>
+        <p class="meta">Submissions enter the waiting list immediately. A reviewer can approve or reject any listing, and a threshold of reasoned likes can approve it unless a reviewer has asked to see it.</p>
         <div class="actions">
             <button class="button" type="submit"<?= $saveDisabled ? ' disabled' : '' ?>><?= e($submitLabel) ?></button>
             <?php if ($cancelUrl !== ''): ?>

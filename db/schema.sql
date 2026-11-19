@@ -74,11 +74,23 @@ CREATE TABLE IF NOT EXISTS projects (
     brief                  MEDIUMTEXT    NULL,
 
     -- draft | seeking-successor | seeking-co-maintainer | seeking-buyer |
-    -- temporary-steward | dormant | adopted | archived
+    -- temporary-steward | seeking-collaborator | seeking-feedback |
+    -- seeking-testers | dormant | adopted | archived
     status                 VARCHAR(32)   NOT NULL DEFAULT 'draft',
-    -- pending | approved | rejected. Only approved listings are built into
-    -- the public catalogue; new submissions start pending.
+    -- idea | prototype | live. Separate from status, which says what the owner
+    -- is looking for rather than how far the work has got.
+    stage                  VARCHAR(16)   NOT NULL DEFAULT 'live',
+    -- pending | approved | rejected | taken_down. Only approved listings are
+    -- built into the public catalogue; new submissions start pending.
     review_status          VARCHAR(16)   NOT NULL DEFAULT 'pending',
+    -- admin | community. How the current approval was reached.
+    approval_source        VARCHAR(16)   NULL,
+    -- Set by a reviewer's rejection. A later run of endorsements must not
+    -- override that decision; a person has to approve the listing.
+    auto_approval_blocked  TINYINT(1)    NOT NULL DEFAULT 0,
+    -- The diff generated when an owner edits a listing, against the version
+    -- it replaced. Null on a new submission or when an edit was accepted.
+    review_diff            JSON          NULL,
     -- The reviewer's reason for a rejection, shown to the owner and cleared
     -- when the listing is resubmitted.
     review_note            VARCHAR(500)  NULL,
@@ -130,6 +142,12 @@ CREATE TABLE IF NOT EXISTS projects (
 
     published_at           DATETIME      NULL,
     confirmed_at           DATETIME      NULL,
+    -- When a live listing's content was last edited. The public "Edited"
+    -- marker shows only while the edit is awaiting re-review.
+    edited_at              DATETIME      NULL,
+    -- accepted | pending | taken_down. An edit is accepted explicitly, or
+    -- automatically after the re-review window.
+    edit_review_status     VARCHAR(16)   NOT NULL DEFAULT 'accepted',
     expires_at             DATETIME      NULL,
     created_at             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -138,7 +156,9 @@ CREATE TABLE IF NOT EXISTS projects (
     UNIQUE KEY uq_projects_slug (slug),
     KEY idx_projects_owner (owner_id),
     KEY idx_projects_status (status),
+    KEY idx_projects_stage (stage),
     KEY idx_projects_review_status (review_status),
+    KEY idx_projects_edit_review (edit_review_status, edited_at),
     KEY idx_projects_category (category),
     KEY idx_projects_readiness (readiness),
     KEY idx_projects_expires (expires_at),
@@ -192,6 +212,30 @@ CREATE TABLE IF NOT EXISTS project_obligations (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Endorsements on a pending listing. A threshold of reasoned endorsements can
+-- approve a listing unless a reviewer has already rejected it. One row per
+-- account per listing; the reason is shown on the waiting page and to the
+-- reviewer, and is the record used to judge abuse.
+CREATE TABLE IF NOT EXISTS project_likes (
+    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    project_id INT UNSIGNED NOT NULL,
+    user_id    INT UNSIGNED NOT NULL,
+    reason     VARCHAR(500) NOT NULL,
+    ip_hash    CHAR(64)     NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_project_likes_project_user (project_id, user_id),
+    KEY idx_project_likes_user (user_id),
+    KEY idx_project_likes_ip_created (ip_hash, created_at),
+    KEY idx_project_likes_created (created_at),
+    CONSTRAINT fk_project_likes_project
+        FOREIGN KEY (project_id) REFERENCES projects (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_project_likes_user
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------------
 -- Proposed revisions to an approved listing
 -- ---------------------------------------------------------------------------
@@ -201,6 +245,8 @@ CREATE TABLE IF NOT EXISTS project_revisions (
     project_id    INT UNSIGNED NOT NULL,
     created_by    INT UNSIGNED NOT NULL,
     payload       JSON         NOT NULL,
+    -- The diff against the live listing, generated at submission time.
+    diff          JSON         NULL,
     -- pending | approved | rejected
     review_status VARCHAR(16)  NOT NULL DEFAULT 'pending',
     note          VARCHAR(500) NULL,
@@ -428,19 +474,27 @@ CREATE TABLE IF NOT EXISTS reports (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS audit_log (
-    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    actor_user_id INT UNSIGNED    NULL,
-    action        VARCHAR(64)     NOT NULL,
-    entity_type   VARCHAR(32)     NOT NULL,
-    entity_id     BIGINT UNSIGNED NULL,
-    detail        TEXT            NULL,
-    ip_hash       CHAR(64)        NULL,
-    created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    actor_user_id   INT UNSIGNED    NULL,
+    -- The person a project event is about (normally the owner), which is not
+    -- always the person who acted. Limits count from here, so deleting a
+    -- listing cannot erase its record.
+    subject_user_id INT UNSIGNED    NULL,
+    action          VARCHAR(64)     NOT NULL,
+    entity_type     VARCHAR(32)     NOT NULL,
+    entity_id       BIGINT UNSIGNED NULL,
+    detail          TEXT            NULL,
+    ip_hash         CHAR(64)        NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_audit_entity (entity_type, entity_id),
     KEY idx_audit_actor (actor_user_id),
+    KEY idx_audit_subject (subject_user_id),
     KEY idx_audit_created (created_at),
     CONSTRAINT fk_audit_actor
         FOREIGN KEY (actor_user_id) REFERENCES users (id)
+        ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT fk_audit_subject
+        FOREIGN KEY (subject_user_id) REFERENCES users (id)
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

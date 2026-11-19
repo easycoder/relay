@@ -1,14 +1,14 @@
 # Relay
 
-Connecting projects that need a next maintainer with the people who can take them on.
+Connecting ideas, prototypes and projects with the people who can take them forward.
 
-Relay is a free, open-source registry and introduction service for continuity. A project owner describes what they have, what it costs and what a successor would inherit; an adopter — increasingly someone working with AI agents rather than writing every line by hand — can assess the project quickly and start a conversation. The site is the missing human layer above a project's own continuity plan and handover mechanism.
+Relay is a free, open-source registry and introduction service for work that needs someone next. An owner describes what they have — or what they want to exist — and what somebody taking it on would inherit or test; a reader, increasingly working with AI agents rather than writing every line by hand, can assess it quickly and start a conversation. A listing is an **idea** (not built yet), a **prototype** (part-built) or a **live project** (in use). Each carries a six-month expiry so the catalogue stays current.
 
-The proposal, including the product shape, the Adoption Brief standard and the technical approach, is in [PROPOSAL.md](PROPOSAL.md).
+The proposal, including the product shape, the brief standard and the technical approach, is in [PROPOSAL.md](PROPOSAL.md).
 
 ## Status
 
-Phase 0: direction agreed, seed content and the first build in progress. The site will live at <https://relay.eclecity.net>.
+Phase 0: direction agreed, the seed listing is live and the catalogue is in place. The site is at <https://relay.eclecity.net>.
 
 ## Development
 
@@ -42,8 +42,8 @@ Then deploy and build in one step:
 ```
 
 `scripts/build.php` reads the published listings and writes
-`public/home.html`, `public/projects/`, `public/learn/`, `public/projects.json`,
-`public/sitemap.xml` and `public/robots.txt`. Those files are generated on the
+`public/home.html`, `public/projects/`, `public/learn/`, `public/about/`,
+`public/projects.json`, `public/sitemap.xml` and `public/robots.txt`. Those files are generated on the
 server and excluded from deploys, so `--delete` cannot remove them. Run the
 build again after any content, template or CSS change that affects the pages
 (CSS is static and does not need a build).
@@ -125,9 +125,9 @@ after load, so they remain usable without JavaScript.
 `/submit/` opens with a **Draft this with an AI, then import it** block. The
 prompt inside it is generated from `submission_fields()` and
 `submission_field_limits()` in `src/projects.php` — every field, its type,
-whether it is required, its character limit, the allowed values (status,
+whether it is required, its character limit, the allowed values (stage, status,
 arrangement, revenue state, user scope, contact mode, assets, readiness), the
-live category list, and the ten Adoption Brief sections. Add or change a field
+live category list, and the brief sections for each stage. Add or change a field
 there and the prompt follows, so an AI never works from a stale shape.
 
 The owner copies the prompt into their AI, gets back one JSON object, saves it
@@ -153,10 +153,27 @@ how to remove it if the site ever moves somewhere that accepts the plain field.
 ## Finding projects
 
 `/find/` is the searchable view of the catalogue: free text over title, pitch,
-synopsis and brief, plus facets for category, what the owner is looking for,
-arrangement, readiness and effort in hours per month. Choices are a GET form, so
-any view is a link that can be shared or bookmarked, and the page works without
-JavaScript.
+synopsis and brief, plus facets for stage (idea, prototype or live), category,
+what the owner is looking for, arrangement, readiness and effort in hours per
+month. Choices are a GET form, so any view is a link that can be shared or
+bookmarked, and the page works without JavaScript.
+
+The default view is **approved** listings. The **Pending approval** tab shows
+everything still pending, with the same search and facets. Each pending entry
+opens at `/waiting/?slug=…`, which is the listing, the like form and the
+reasons people gave. Both views are `noindex`; pending listings never enter
+`projects.json`, the sitemap or the home page.
+
+The result list defaults to **10 entries per page in random order**, so a new
+visitor sees a fair mix rather than the same newest handful. A selector offers
+10, 20 or 50 per page, and the order can be switched to **most recent**. In
+random mode the seed travels in the URL, so **More** continues the same shuffle
+rather than repeating entries. There is one set of records: the approved flag
+is `projects.review_status`, and the pending view is a filter, not a separate
+queue. Every card shows the number of likes, when there is at least one, and an
+**Approved** or **Pending approval** flag; the entry page shows the count in its
+facts when it is above zero. The generated catalogue pages show counts as of the
+last build; `/find/` is live.
 
 Each facet's counts are computed *without* its own filter, so a dropdown shows
 what choosing that value would lead to rather than only what is already chosen.
@@ -165,94 +182,144 @@ parameters together — the parameters are bound, and `%`/`_` in a search term a
 escaped before they reach `LIKE`.
 
 `/find/?format=json` returns the same rows as data (`query`, `total`, `page`,
-`pages`, `projects`), which is the surface an agent or script reads;
-`/projects.json` remains the whole-catalogue dump. Facet URLs are `noindex` and
-disallowed in `robots.txt` so the generated pages stay the indexed catalogue.
-The nav link and the catalogue's "Filter and search" button appear on generated
-pages, so they need a publish (or a build) to show up.
+`pages`, `projects`), including `stage`, `approved`, `review_status` and
+`like_count`, which is the surface an agent or script reads; `/projects.json`
+remains the whole-catalogue dump of approved listings, with `like_count`.
+Facet URLs are `noindex` and disallowed in `robots.txt` so the generated pages
+stay the indexed catalogue. The nav link and the catalogue's "Filter and
+search" button appear on generated pages, so they need a publish (or a build)
+to show up.
 
-## Human review
+## Review and community approval
 
-A listing is not published until a person approves it. `projects.review_status`
-is `pending`, `approved` or `rejected`, and `scripts/build.php` only includes
-approved rows. New submissions default to `pending`, so an automated flood of
-repositories cannot reach the catalogue without a human decision on each one.
+Only approved listings are published. `projects.review_status` is `pending`,
+`approved`, `rejected` or `taken_down`, and `scripts/build.php` includes only
+approved, unexpired rows. New submissions start `pending`.
 
-Apply the migration before deploying the build that uses it:
+A pending listing is visible at `/find/?view=pending` and on its own waiting
+page, `/waiting/?slug=…`. Both are `noindex`; neither is in `projects.json`,
+the sitemap or the home page. The waiting page shows the brief and the reasons
+people gave for liking it. The default view of `/find/` remains approved
+only.
 
-```sh
-mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
-  < db/migrations/0001_add_review_status.sql
+A like is a reasoned act, not a click:
+
+- one per account per listing (`project_likes` has a unique key);
+- the owner cannot like their own listing;
+- the account must be at least `like_min_account_age_days` old;
+- one IP may leave at most `like_ip_daily_limit` likes in a day;
+- the reason is required (20–500 characters) and is shown publicly on the
+  waiting page and to reviewers.
+
+When the count reaches `like_threshold` (default 5) and the listing is not
+blocked, it is approved automatically with `approval_source = 'community'`.
+The settings live in the `community` block of the config, or as flat
+`like_*` keys in the host-named JSON file:
+
+```php
+'community' => [
+    'like_threshold' => 5,
+    'like_min_account_age_days' => 7,
+    'like_ip_daily_limit' => 10,
+    'edit_review_days' => 14,
+],
 ```
 
-The migration approves existing listings, including Relay itself. Reviewers
-with the `admin` or `moderator` role use `/review/`; the CLI remains for new
-listings:
+A person can approve or reject any listing at `/review/`, or with the CLI:
 
 ```sh
 php scripts/review.php list
 php scripts/review.php approve <slug>
 php scripts/review.php reject <slug> --note "reason"
+php scripts/review.php veto <slug> --note "reason"
+php scripts/review.php accept-edit <slug>
+php scripts/review.php takedown <slug> --note "reason"
 ```
 
-An operator address in the config (`mail.admin`) is emailed when the queue
-grows: a new listing, a revision on a live listing, or a listing edited back
-into the queue. One message per event, subject prefixed `Relay:`, and never
-when the operator is the person who acted — so a filter can divert them and a
-busy day cannot bury an inbox. Leave the key out to send none.
+`accept-edit` lets an edited listing stay; `takedown` removes it pending a
+correction and emails the owner.
 
-The web queue writes an `audit_log` entry, sets `published_at` on first
-approval and gives the listing a six-month expiry. A rejection reason is also
-stored on the listing itself (`projects.review_note`) and shown to the owner on
-the dashboard and at the top of the edit form; it is cleared when they
-resubmit. Both that column and the retry counter below come from `0004`:
+An approval needs no reason. A rejection stores the reason (`review_note`),
+shows it to the owner on the dashboard and the edit form, and sets
+`auto_approval_blocked`: later likes cannot approve that listing. The
+owner can edit and resubmit; the likes are cleared because they were
+about the old content, and a person must approve the new version. A reviewer
+can veto a community approval on `/review/`; the veto is recorded as
+`project.vetoed` and does not count as a submission strike.
+
+Edits to a live listing are different: they apply immediately, the listing is
+marked **Edited**, and it joins a separate **Recently edited** list on
+`/review/`. If nobody acts, the edit is accepted after `edit_review_days`
+(default 14), and the Edited marker disappears. A reviewer can accept the edit
+sooner, or take the listing down pending a correction, giving a reason that is
+emailed to the owner and shown on their dashboard. A taken-down correction goes
+back through initial review, and `auto_approval_blocked` keeps likes from
+putting it back on their own. Legacy pending revisions remain in an **Earlier
+revisions** section and are superseded by a live edit.
+
+When an owner edits a listing, the diff against the version being replaced is
+created at submission and stored in `projects.review_diff` — for a live edit as
+well as for a pending, rejected or taken-down listing. Legacy revision rows keep
+their diff in `project_revisions.diff`. `/review/` offers **Changes** and
+**Full text** tabs. A new submission has no previous version, so it keeps the
+full-text view. The tabs work without JavaScript.
+
+Apply the migrations before deploying this code:
 
 ```sh
 mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
-  < db/migrations/0004_add_review_note_and_resubmissions.sql
+  < db/migrations/0007_add_stages_endorsements_and_subject_audit.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0008_add_review_diffs.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0009_add_edit_review.sql
 ```
 
-Rebuild after a decision. A reviewer presses **Publish now** on `/review/`,
-which runs the same build from the browser — approving a listing does not
-publish it on its own. From a shell it is still:
+Approving a listing does not publish it on its own, and a take-down does not
+remove the page on its own. Press **Publish now** on `/review/`, or run
+`./deploy.sh --build` / `php scripts/build.php`. The build
+takes a lock (`storage/publish.lock`), so a cron build and a button press cannot
+interleave. It needs `public/` writable by the PHP user, which it already is
+after a deploy.
 
-```sh
-./deploy.sh --build
-```
-
-The button posts to `/publish/`, which is admin/moderator only, CSRF checked and
-allowed to run one build at a time; it reports how many listings it rebuilt and
-how many stale pages it removed. It needs `public/` writable by the PHP user,
-which it already is after a deploy. `php scripts/build.php` remains for cron and
-for deploying, and both paths run `build_catalogue()` from `src/build.php`.
+An operator address in the config (`mail.admin`) is emailed when the queue
+grows: a new listing, a listing edited back into the initial queue, or a
+community approval. Live edits are not emailed; they appear in the re-review
+list. One message per event, subject prefixed `Relay:`, and never when the
+operator is the person who acted — so a filter can divert them and a busy day
+cannot bury an inbox. Leave the key out to send none.
 
 ## Editing a listing
 
-The dashboard has an **Edit** link for each listing. A pending or rejected
-listing is updated directly and returns to the review queue. An approved
-listing stays live while the edit is stored as a pending revision; `/review/`
-shows the proposed content, and approving it applies the change, renews the
-six-month expiry and writes an `audit_log` entry. Rejecting it leaves the live
-listing untouched.
+The dashboard has an **Edit** link for each listing. An edit to a live listing
+applies immediately and the public page updates on the next build. The listing
+is marked **Edited** and joins the reviewer's re-review list for
+`edit_review_days` (default 14) days unless accepted; a reviewer can take it
+down for correction. A pending, rejected or taken-down listing is updated in
+place and returns to the initial review queue; its likes are cleared,
+because they were about the old content. If a reviewer had rejected or taken it
+down, the new version still needs a person. The review page's **Changes** tab
+shows what this save changed; **Full text** shows the complete version.
 
 The dashboard title is also a link: an approved listing opens its public page;
-a pending or rejected listing opens `/preview/?slug=…`, an owner-only preview
-with an Edit button. The preview is `noindex` and never published.
+a pending, rejected or taken-down listing opens `/preview/?slug=…`, an
+owner-only preview with an Edit button. The preview is `noindex` and never
+published.
 
-A rejected listing shows the reviewer's reason and the retries it has used. A
-listing may be resubmitted five times in any rolling thirty days: each save of
-a listing that is not live is recorded in `project_resubmissions`, and at the
-limit the save is refused before anything is written — the edit form shows the
-date the next attempt opens and disables the save button, so a bot cannot loop
-the queue. Edits to an approved listing are revisions and are not counted.
-`RESUBMIT_LIMIT` and `RESUBMIT_WINDOW_DAYS` in `src/projects.php` are the
-knobs.
+A rejected or taken-down listing shows the reviewer's reason and the retries it
+has used. A listing may be resubmitted five times in any rolling thirty days:
+each save of a listing that is not live is recorded in `project_resubmissions`,
+and at the limit the save is refused before anything is written — the edit form
+shows the date the next attempt opens and disables the save button, so a bot
+cannot loop the queue. Edits to a live listing are not resubmissions and are
+not counted; they are re-reviewed after the fact. `RESUBMIT_LIMIT` and
+`RESUBMIT_WINDOW_DAYS` in `src/projects.php` are the knobs.
 
 ### Deleting a listing
 
 The edit page ends with a **Delete this listing** button. It is only offered
 when nobody is interacting with the listing: any expression of interest (in any
-state), or a revision waiting for review, blocks it, and the page says which.
+state), or an earlier revision awaiting a decision, blocks it, and the page says which.
 Deleting removes the listing, its revisions and its resubmissions; the
 `audit_log` entry (`project.deleted`, with the title and slug) stays. Run a
 build afterwards — `scripts/build.php` now prunes `public/projects/<slug>/` for
@@ -264,40 +331,38 @@ Two things are scarce — mail and reviewer time — so both are bounded per
 account, and the refusals happen before anything is written.
 
 - **New listings.** At most three in any rolling thirty days, and at most two
-  waiting for review at once. An approval or rejection frees a queue slot; the
+  pending approval at once. An approval or rejection frees a queue slot; the
   next new listing opens when the oldest one ages out of the window. The point
   is the queue bound: a reviewer can never face a pile from one account,
-  however the attempts are paced.
+  however the attempts are paced. Counted from `project.submitted` in the
+  audit trail, so deleting a listing does not reset the window.
 - **Resubmissions.** Five per listing in any rolling thirty days, as above.
+- **Live edits.** Not counted as submissions or resubmissions. They are
+  re-reviewed after the fact; a take-down is not a rejection strike.
 - **Rejections.** Three rejected listings in thirty days pause the account's
   submissions and resubmissions for thirty days. Rejections are counted from
-  `audit_log`, so resubmitting a listing does not erase the strike, and they
-  age out of the window one at a time, so the pause lifts by itself. The pause
+  `project.rejected` with the owner as `subject_user_id`, so deleting or
+  resubmitting a listing does not erase the strike, and they age out of the
+  window one at a time, so the pause lifts by itself. A veto of a community
+  approval or a take-down is a separate action and does not count. The pause
   keys on the listing's owner, so a moderator editing someone else's listing is
   not blocked by that account's record.
 - **Sign-in.** Ten magic links per IP and five per address per fifteen minutes.
 
 The knobs are all in `src/projects.php`: `SUBMIT_PENDING_LIMIT`,
 `SUBMIT_WINDOW_LIMIT`, `SUBMIT_WINDOW_DAYS`, `SUBMIT_STRIKES`,
-`RESUBMIT_LIMIT`, `RESUBMIT_WINDOW_DAYS`.
-
-What these do **not** cover: `users` rows are still created when a link is
-*requested* (`public/login/index.php` calls `create_user()` before sending), so
-an unverified row exists for any address typed into the form, bounded only by
-the magic-link budget. Such a row cannot submit anything — that needs a session,
-which needs a consumed link — so it is a clutter-and-noise risk rather than a
-submission route.
-
-Apply `db/migrations/0002_add_project_revisions.sql` before deploying the edit
-flow. The live page is only regenerated after the revision is approved and the
-build runs.
+`RESUBMIT_LIMIT`, `RESUBMIT_WINDOW_DAYS`, `EDIT_REVIEW_DAYS`. The last is the
+default for the `community.edit_review_days` setting.
 
 ## Expiry and reconfirmation
 
-A published listing carries a six-month expiry (`projects.expires_at`, set on
-approval and renewed when a revision is approved). The build only includes rows
-that have not expired, so an unrenewed listing leaves the catalogue quietly —
-which is why owners get a warning first.
+A listing carries a six-month expiry (`projects.expires_at`). It is set when a
+submission is created, renewed on approval, when a live edit is saved and when a
+correction is approved, and pushed out by a reconfirmation. A pending
+submission has the same clock, so an abandoned submission does not sit in the
+waiting list for ever. The build and search only include rows that have not
+expired, so an unrenewed listing leaves the catalogue quietly — which is why
+owners get a warning first.
 
 ```sh
 php scripts/expiry-reminders.php            # remind about the next 14 days
@@ -310,6 +375,16 @@ Run it once a day from cron, for example:
 ```cron
 17 7 * * * cd /home/eclecity/relay.eclecity.net && php scripts/expiry-reminders.php >> /home/eclecity/expiry.log 2>&1
 ```
+
+Expiry only takes effect when the build runs. Schedule a build too, so an
+approval or an expiry does not wait for someone to press **Publish now**:
+
+```cron
+*/10 * * * * cd /home/eclecity/relay.eclecity.net && php scripts/build.php >> /home/eclecity/build.log 2>&1
+```
+
+The reminder covers approved listings only; a pending owner sees the expiry on
+the dashboard.
 
 Each run emails the owner of every approved listing that expires inside the
 window and has not been reminded about *this* expiry; `project_expiry_reminders`
@@ -344,7 +419,7 @@ Apply `db/migrations/0003_add_interest_details.sql` before deploying the relay.
 The pending dummy is not open for interest until it is approved and rebuilt;
 use an approved listing to test the full loop.
 
-## Deploying
+## Guides
 
 The first guide is `/learn/handover/`, *When the maintainer disappears*. It is
 generated from `content/learn/handover.md` through the guide list in
@@ -388,7 +463,7 @@ hand and is never uploaded.
 After the first deploy, check the database:
 
 ```sh
-ssh eclecity@doclets.eclecity.net \
+ssh eclecity@eclecity.net \
   'cd /home/eclecity/relay.eclecity.net && php scripts/db-check.php'
 ```
 

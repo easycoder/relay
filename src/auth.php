@@ -671,7 +671,7 @@ function admin_address(): string
 {
     $config = relay_config();
 
-    return trim((string) ($config['mail']['admin'] ?? ''));
+    return trim((string) ($config['mail']['admin'] ?? $config['mail_admin'] ?? ''));
 }
 
 /**

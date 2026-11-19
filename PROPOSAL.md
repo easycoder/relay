@@ -5,6 +5,10 @@
 > **Agreed on 2026-11-16:** the name **Relay**; listings and an interest relay first, with rooms in Phase 2; a pre-rendered public catalogue with a browser-based **AllSpeak** UI for the interactive surfaces, a **PHP** backend and a **database**; **free and open source**, with no paid tier.
 >
 > **Amended 2026-11-17 — the UI runtime.** AllSpeak is withdrawn from Relay's plan. The build is server-rendered **PHP** throughout: the public catalogue is generated HTML, and the working surfaces (search, submission, dashboard, review, interests) are PHP templates rendered per request. Reasons: this UX does very little client-side work, so a browser runtime would add a moving part and a CDN dependency without buying anything; the pages stay crawlable and readable with JavaScript off; and a handover project should not carry a technology stack it does not need. AllSpeak was the right question to ask and the wrong answer here. Agents and scripts are served by JSON instead (`projects.json`, `/find/?format=json`), which is the machine interface the AI-assisted workflow actually needs. The code has been built this way since the first listing; this note makes the plan say what the code does.
+>
+> **Amended 2026-11-18 — scope and approval.** Relay now lists **ideas** and **prototypes** as well as live projects. A new `stage` axis (idea / prototype / live) is separate from `status`, which says what the owner wants. Pending listings are visible in a waiting view at `/find/?view=pending` and can be approved by a threshold of **reasoned likes** (default five) unless a reviewer has rejected the listing; a reviewer can veto a community approval. A rejection always comes from a person, blocks automatic approval, and is explained to the owner. The six-month expiry applies to pending submissions as well as published listings. This supersedes the "human review before publication" bullet in §9 and the Phase 3 placement of community review in §14; the rest of the document is the original case for the idea.
+>
+> **Amended 2026-11-18 — edits are post-reviewed.** Re-reviewing every edit proved impractical. An edit to a live listing now applies immediately and the listing is marked **Edited**. It joins a **Recently edited** list for a configurable window (default 14 days); if nobody acts, it is accepted and the marker disappears. A reviewer can accept the edit or take the listing down pending a correction, giving a reason that is emailed to the owner. Initial submissions and corrections still need review. This supersedes the "Edits are reviewed too" bullet in §9 and the revision-review wording in §14.
 
 ## 1. The proposition
 
@@ -16,7 +20,7 @@ The site is a **registry, a search engine and an introduction service for projec
 
 **It is:**
 
-- a public, indexable catalogue of projects seeking a successor, co-maintainer or buyer;
+- a public, indexable catalogue of ideas, prototypes and live projects that need someone to take them on, contribute to, or test;
 - a structured way to describe a project so that a person — or their agent — can assess it quickly;
 - a matching and messaging layer that lets an owner and an interested adopter talk without exposing either party to spam;
 - a standard (`continuity.json` plus an **Adoption Brief**) that any project can adopt, with or without the site;
@@ -89,7 +93,7 @@ Typically a programmer or AI-capable builder who wants a project with a visible 
 
 ## 5. The core artefact: the Adoption Brief
 
-Every listing is a summary of a longer **Adoption Brief** — a Markdown document the owner writes (or drafts with an agent) and keeps in the repository. It is the thing an adopter's agent reads first. Suggested sections:
+Every listing is a summary of a longer brief — a Markdown document the owner writes (or drafts with an agent) and keeps in the repository. It is the thing a reader's agent reads first. The brief is one artefact with a stage-specific name and shape: an **Idea Brief** for something not built, a **Project Brief** for a part-built prototype, and an **Adoption Brief** for a live project. The handover sections below apply to the last; the idea and prototype variants replace access, estate and obligations with the problem, prior art, evidence, what is unfinished and a cheap test. Suggested sections for a live project:
 
 1. **What it is** — one paragraph a non-user would understand.
 2. **Who uses it** — customers, installers, internal users, nobody yet.
@@ -133,6 +137,7 @@ Structured fields:
 
 | Field | Why it matters |
 |---|---|
+| **Stage** | Idea · prototype · live. Decides which fields and brief sections apply. |
 | **Title** and **one-line pitch** | The only thing most visitors read. |
 | **Synopsis** (150–250 words) | Scanning; used in search results and cards. |
 | **Detail** / Adoption Brief | Depth; the agent-readable artefact. |
@@ -151,6 +156,7 @@ Structured fields:
 | **Links** | Repository, live site, docs, demo, screenshots. |
 | **Contact mode** | Via the site only (default), or a public contact route. |
 | **Freshness** | Last confirmed by owner; expiry date. |
+| **Likes** | Count and reasons on a pending listing; a threshold can approve it unless a reviewer has blocked it. |
 
 ### `continuity.json`
 
@@ -194,8 +200,9 @@ Search is the product. A visitor who cannot narrow 200 projects to five relevant
 
 - Full-text search across title, keywords, synopsis and brief, with field weighting.
 - Typo tolerance and synonyms (`HVAC` ↔ `heating`; `JS` ↔ `JavaScript`; `ML` ↔ `machine learning`).
-- Faceted filtering on status, category, arrangement, revenue state, effort, skills, licence, users, assets, readiness and jurisdiction.
+- Faceted filtering on stage, status, category, arrangement, revenue state, effort, skills, licence, users, assets, readiness and jurisdiction.
 - Sorting by newest, most complete, nearest to ready, lowest effort, revenue potential, and urgency.
+- The result list defaults to a **random order, ten entries per page**, with a page-size choice (10/20/50) and a most-recent option. The random seed is carried in the URL so paging continues the same shuffle. Every card and listing page shows the like count when it is above zero, plus an approved/pending flag; the pending view is a filter over the same records, not a separate queue.
 - "More like this" on a project page, derived from category, keywords and stack.
 
 **At the site level**
@@ -257,12 +264,17 @@ This is a service where strangers hand over assets. Trust is the feature.
 - Contact details are revealed only by mutual consent; the default is an email relay through the site.
 - Warnings about the known failure modes: fake owners, asset stripping, "pay a fee to take over", requests for production credentials before an agreement, and pressure to act fast.
 - A clear rule that listings must not contain secrets or personal data, and that the site will remove them.
-- **Human review before publication.** Every listing starts as `pending`; the
-  public build only includes `approved` listings, so an automated flood of
-  repositories cannot reach the catalogue without a person approving each one.
-- **Edits are reviewed too.** An owner can revise an approved listing; the
-  live page stays up while the revision is pending, and the new content
-  replaces it only after a person approves it.
+- **Review before publication.** Every listing starts as `pending`; the
+  public build only includes `approved` listings. A person can approve or
+  reject any listing, and a pending listing can also be approved by a threshold
+  of reasoned likes. A person's rejection blocks automatic approval,
+  and a reviewer can veto a community approval. The waiting list is public but
+  `noindex`, so the catalogue itself stays curated.
+- **Edits are post-reviewed.** An edit to an approved listing applies
+  immediately, is marked **Edited**, and joins a re-review list for a
+  configurable window (default 14 days). A reviewer can accept it or take the
+  listing down pending a correction, with a reason emailed to the owner.
+  Initial submissions and corrections still need review.
 - Rate limits, a honeypot, email verification and GitHub OAuth for submission; CAPTCHA only if needed.
 - A single named moderation contact and a published response expectation.
 
@@ -285,6 +297,8 @@ Every field that may be AI-drafted carries a label and an owner-confirmation dat
 /                         Home — two doors: "I need a successor" / "I want a project"
 /projects                 Search and browse, with facets
 /projects/<slug>          Listing: synopsis, facts, brief, interest button, room status
+/find/?view=pending       Waiting list: submitted, not yet approved
+/waiting/<slug>           A pending listing, its likes and the reason form
 /categories/<slug>        Landing pages (only when populated)
 /keywords/<slug>          Landing pages (only when populated)
 /submit                   Multi-step submission with live preview and AI-draft prompts
@@ -335,8 +349,9 @@ Agents are served by JSON rather than by a browser runtime: `projects.json` for 
 Once owners can edit listings, adopters can express interest, and rooms hold messages, files with `flock` become a liability: no joins for search, no transaction for "accept this one and decline the others", no clean audit trail. MySQL is already available on the DreamHost account. The schema is deliberately small:
 
 - `users` — id, email, display name, GitHub id, verified-at, created-at.
-- `projects` — id, slug, owner-id, title, pitch, synopsis, brief (Markdown), status, review status, arrangement, category, revenue state and model, monthly cost and currency, effort hours, users, licence, jurisdiction, language, timezone, repository and site URLs, readiness level, contact mode, created/updated/confirmed/expires timestamps.
+- `projects` — id, slug, owner-id, title, pitch, synopsis, brief (Markdown), status, stage, review status, approval source, automatic-approval block, arrangement, category, revenue state and model, monthly cost and currency, effort hours, users, licence, jurisdiction, language, timezone, repository and site URLs, readiness level, contact mode, created/updated/confirmed/expires timestamps.
 - `project_keywords`, `project_skills`, `project_assets`, `project_obligations` — one row per value, indexed for facets.
+- `project_likes` — one reasoned like per account per pending listing; the threshold and gates are settings.
 - `interests` — project-id, user-id, message, status (new/accepted/declined), created-at.
 - `rooms`, `room_members`, `messages` — the Phase 2 conversation layer.
 - `magic_links`, `sessions` — authentication.
@@ -387,7 +402,7 @@ Lock the name Relay, write the one-page manifesto, create the database schema an
 
 **Phase 1 — MVP (weeks 2–4)**
 
-Listing pages generated from the database, search and facets, owner submission with magic-link editing, moderation queue, expression-of-interest relay by email, expiry reminders, public JSON API, sitemap and feeds, safety and legal pages. *Done when* 20 quality listings are live and the first three expressions of interest have been delivered.
+Listing pages generated from the database, search and facets, owner submission with magic-link editing, moderation queue, the public waiting list with reasoned likes, post-hoc edit review, expression-of-interest relay by email, expiry reminders, public JSON API, sitemap and feeds, safety and legal pages. *Done when* 20 quality listings are live and the first three expressions of interest have been delivered.
 
 **Phase 2 — Rooms and accounts (weeks 5–8)**
 
@@ -395,7 +410,7 @@ Per-project rooms stored in the database, notifications, adopter profiles, saved
 
 **Phase 3 — Scale and sustain (weeks 9–12)**
 
-MQTT live rooms if needed, an MCP server or agent toolkit, translations, partnerships, case studies, and the community review process. *Done when* the first completed adoption is recorded and the site is running within its means.
+MQTT live rooms if needed, an MCP server or agent toolkit, translations, partnerships and case studies. *Done when* the first completed adoption is recorded and the site is running within its means.
 
 Each phase should be shippable on its own. If Phase 0 attracts no owners, that is a finding worth having before building Phase 2.
 
@@ -409,7 +424,7 @@ Each phase should be shippable on its own. If Phase 0 attracts no owners, that i
 | **Legal exposure** — a failed handover blamed on the site | Clear terms, no guarantee, no brokerage, no advice; a documented process and an audit trail. |
 | **Moderation burnout** | Async-first; rooms only after accepted interest; rate limits; a published policy; volunteer moderators when volume justifies it. |
 | **Privacy breach** | Data minimisation; no secrets; short retention; access control; backups encrypted at rest. |
-| **AI-generated nonsense** in briefs | Owner confirmation, labels, factual fields verified from the repository, and a community review checklist that checks the brief. |
+| **AI-generated nonsense** in briefs | Owner confirmation, labels, factual fields verified from the repository, reasoned likes and a reviewer's veto. |
 | **The site becomes a single point of failure** | Static-first, open content, its own continuity plan, mirrors, and a named backup maintainer. |
 | **Scope creep** | Phase gates; each phase has a single success condition; no payments, no job board, no general social network. |
 
@@ -420,6 +435,10 @@ Each phase should be shippable on its own. If Phase 0 attracts no owners, that i
 3. **Build.** Pre-rendered HTML for the public catalogue, server-rendered PHP for the working surfaces, MySQL for the data. Everything stays crawlable and usable without JavaScript; JSON serves agents. (Amended 2026-11-17: AllSpeak was withdrawn from the UI; see the note at the top.)
 4. **Money and licence.** Free at launch and after, with no paid tier; Apache-2.0 and self-hostable.
 5. **First listing.** Relay itself, with its current honest status: the database and deployment are in place, the catalogue is being built, and a co-maintainer is sought. RBR follows, with its handover mechanism built and tested and no named successor yet.
+6. **Scope (2026-11-18).** Ideas, prototypes and live projects; `stage` is separate from `status`, and the brief's name and sections follow the stage.
+7. **Approval (2026-11-18).** Pending listings are public but `noindex`; reasoned likes can approve at a configurable threshold; a person's rejection blocks automatic approval and a reviewer can veto a community approval.
+8. **Edits (2026-11-18).** Live edits go live immediately, are marked Edited and re-reviewed after the fact for a window (default 14 days); a reviewer can accept or take down with a reason.
+9. **Listing display (2026-11-19).** One `projects` table; `review_status` is the approved flag. The default view is approved and the pending view is a filter. Every list and entry page shows the like count when it is above zero, plus an approved/pending flag. Search defaults to random order, 10 per page, with 10/20/50 and most-recent options; More continues the seeded shuffle.
 
 The remaining choices — column types, the exact deploy target, the first five categories — are ordinary engineering decisions and do not need another round of review.
 

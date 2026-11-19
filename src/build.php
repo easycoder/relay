@@ -17,14 +17,56 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/html.php';
+require_once __DIR__ . '/projects.php';
+
+/** Thrown when another build already holds the lock. */
+class BuildBusyException extends RuntimeException
+{
+}
 
 /**
- * Run the build.
+ * Run the build, one at a time.
+ *
+ * The lock lives here rather than in the web endpoint so a cron build and a
+ * reviewer's Publish now cannot interleave directory pruning with page writes.
+ *
+ * @return array{lines: array<int, string>, listings: int, removed: int, pending: int}
+ * @throws BuildBusyException when another build is running
+ * @throws RuntimeException when the site URL, the database or a write fails.
+ */
+function build_catalogue(): array
+{
+    $dir = dirname(__DIR__) . '/storage';
+
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        $dir = rtrim(sys_get_temp_dir(), '/');
+    }
+
+    $handle = @fopen($dir . '/publish.lock', 'c');
+
+    if ($handle === false || !@flock($handle, LOCK_EX | LOCK_NB)) {
+        if (is_resource($handle)) {
+            @fclose($handle);
+        }
+
+        throw new BuildBusyException('A build is already running.');
+    }
+
+    try {
+        return build_catalogue_inner();
+    } finally {
+        @flock($handle, LOCK_UN);
+        @fclose($handle);
+    }
+}
+
+/**
+ * The build itself. Call build_catalogue(), not this.
  *
  * @return array{lines: array<int, string>, listings: int, removed: int, pending: int}
  * @throws RuntimeException when the site URL, the database or a write fails.
  */
-function build_catalogue(): array
+function build_catalogue_inner(): array
 {
     $lines = [];
     $removed = 0;
@@ -39,6 +81,14 @@ function build_catalogue(): array
 
         $pdo = db();
 
+    // An edit whose re-review window has passed is accepted in fact; keep the
+    // status honest so the dashboard and later queries agree.
+    $acceptedEdits = accept_stale_edits($pdo);
+
+    if ($acceptedEdits > 0) {
+        $lines[] = 'Accepted ' . $acceptedEdits . ' edit(s) after the re-review window.';
+    }
+
     $categories = $pdo->query('SELECT slug, name FROM categories')->fetchAll(PDO::FETCH_KEY_PAIR);
 
     $guideMeta = require $root . '/content/learn/guides.php';
@@ -48,7 +98,8 @@ function build_catalogue(): array
     }
 
     $projects = $pdo->query(
-        "SELECT p.*, u.display_name AS owner_name
+        "SELECT p.*, u.display_name AS owner_name,
+                (SELECT COUNT(*) FROM project_likes l WHERE l.project_id = p.id) AS like_count
          FROM projects p
          JOIN users u ON u.id = p.owner_id
          WHERE p.review_status = 'approved'
@@ -221,12 +272,24 @@ function build_catalogue(): array
         $learnContent
     ));
 
+    $aboutContent = render_template('about', []);
+    $write($public . '/about/index.html', $renderPage(
+        'About — Relay',
+        'Why Relay exists: continuity is the missing piece that lets someone else assess, support or take on work that depends on one person.',
+        $siteUrl . '/about/',
+        $aboutContent
+    ));
+
     $jsonProjects = array_map(static function (array $project) use ($siteUrl): array {
         return [
             'slug' => $project['slug'],
             'title' => $project['title'],
             'pitch' => $project['pitch'],
+            'stage' => $project['stage'],
             'status' => $project['status'],
+            'approved' => true,
+            'edited_at' => edit_marker_visible($project) ? $project['edited_at'] : null,
+            'like_count' => (int) ($project['like_count'] ?? 0),
             'arrangement' => $project['arrangement'],
             'category' => $project['category'],
             'readiness' => (int) $project['readiness'],
@@ -255,7 +318,7 @@ function build_catalogue(): array
 
     $xmlEscape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
 
-    $urls = [$siteUrl . '/', $siteUrl . '/projects/', $siteUrl . '/learn/'];
+    $urls = [$siteUrl . '/', $siteUrl . '/projects/', $siteUrl . '/learn/', $siteUrl . '/about/'];
     foreach ($projects as $project) {
         $urls[] = $siteUrl . '/projects/' . rawurlencode((string) $project['slug']) . '/';
     }
@@ -283,6 +346,8 @@ function build_catalogue(): array
         . "Disallow: /review/\n"
         . "Disallow: /publish/\n"
         . "Disallow: /find/\n"
+        . "Disallow: /waiting/\n"
+        . "Disallow: /like/\n"
         . "Disallow: /logout/\n"
         . "Disallow: /session.php\n"
         . "Sitemap: {$siteUrl}/sitemap.xml\n";

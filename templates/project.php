@@ -2,10 +2,19 @@
 
 /** @var array<string, mixed> $project */
 
+$backUrl = $backUrl ?? '/projects/';
+$backText = $backText ?? 'All projects';
+$stage = (string) ($project['stage'] ?? 'live');
 $status = status_label($project['status']);
 
 $facts = [];
 $facts['Status'] = $status;
+$facts['Stage'] = stage_label($stage);
+$likeLabel = like_count_label((int) ($project['like_count'] ?? 0));
+
+if ($likeLabel !== '') {
+    $facts['Likes'] = $likeLabel;
+}
 
 if (!empty($project['owner_name'])) {
     $facts['Owner'] = $project['owner_name'];
@@ -43,7 +52,9 @@ if (!empty($project['licence'])) {
     $facts['Licence'] = $project['licence'];
 }
 
-$facts['Readiness'] = readiness_label((int) $project['readiness']);
+if ($stage !== 'idea') {
+    $facts['Readiness'] = readiness_label((int) $project['readiness']);
+}
 
 if (!empty($project['published_at'])) {
     $facts['Listed'] = format_date($project['published_at']);
@@ -79,15 +90,24 @@ if (!empty($project['assets'])) {
 
 ?>
 <article class="listing">
-    <p class="meta"><a href="/projects/">← All projects</a></p>
+    <p class="meta"><a href="<?= e($backUrl) ?>">← <?= e($backText) ?></a></p>
 
     <header class="listing-header">
         <p class="eyebrow"><?= e($project['category_name']) ?></p>
         <h1><?= e($project['title']) ?></h1>
         <p class="lede"><?= e($project['pitch']) ?></p>
         <p class="badges">
-            <span class="badge"><?= e($status) ?></span>
-            <span class="badge badge-quiet"><?= e(readiness_label((int) $project['readiness'])) ?></span>
+            <span class="badge"><?= e(stage_label($stage)) ?></span>
+            <span class="badge badge-quiet"><?= e($status) ?></span>
+            <?php if (($project['review_status'] ?? 'approved') === 'approved'): ?>
+                <span class="badge badge-quiet">Approved</span>
+            <?php endif; ?>
+            <?php if ($stage !== 'idea'): ?>
+                <span class="badge badge-quiet"><?= e(readiness_label((int) $project['readiness'])) ?></span>
+            <?php endif; ?>
+            <?php if (edit_marker_visible($project)): ?>
+                <span class="badge badge-quiet">Edited <?= e(format_date($project['edited_at'])) ?></span>
+            <?php endif; ?>
             <?php if (!empty($project['is_draft'])): ?>
                 <span class="badge badge-quiet">Draft</span>
             <?php endif; ?>
@@ -109,7 +129,7 @@ if (!empty($project['assets'])) {
 
             <?php if (!empty($project['brief'])): ?>
                 <section class="brief">
-                    <h2>Adoption Brief</h2>
+                    <h2><?= e(brief_label($stage)) ?></h2>
                     <?= render_markdown($project['brief'], 1) ?>
                 </section>
             <?php endif; ?>

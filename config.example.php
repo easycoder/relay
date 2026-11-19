@@ -32,4 +32,24 @@ return [
         // review queue. Subjects all start "Relay:". Leave empty to send none.
         'admin' => 'hello@relay.eclecity.net',
     ],
+
+    'community' => [
+        // Reasoned likes needed to approve a pending listing without a
+        // reviewer. A reviewer can still veto any approval, and a rejection by
+        // a reviewer blocks automatic approval for that listing.
+        'like_threshold' => 5,
+
+        // Accounts younger than this cannot like. This is the cheap defence
+        // against one person creating several accounts to approve their own
+        // listing; it costs time rather than a click.
+        'like_min_account_age_days' => 7,
+
+        // Likes one IP address may leave in a rolling 24 hours.
+        'like_ip_daily_limit' => 10,
+
+        // How long an edit to a live listing stays in the re-review list, and
+        // how long the public "Edited" marker shows. If nobody acts, the edit
+        // is accepted after this many days.
+        'edit_review_days' => 14,
+    ],
 ];

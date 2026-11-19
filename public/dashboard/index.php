@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/bootstrap.php';
 require dirname(__DIR__, 2) . '/src/html.php';
 require dirname(__DIR__, 2) . '/src/auth.php';
 require dirname(__DIR__, 2) . '/src/interests.php';
+require dirname(__DIR__, 2) . '/src/likes.php';
 
 $user = require_login();
 $pdo = db();
@@ -15,7 +16,9 @@ $stmt = $pdo->prepare(
             (SELECT COUNT(*) FROM project_revisions r
              WHERE r.project_id = p.id AND r.review_status = 'pending') AS pending_revisions,
             (SELECT COUNT(*) FROM interests i
-             WHERE i.project_id = p.id AND i.status = 'new') AS new_interests
+             WHERE i.project_id = p.id AND i.status = 'new') AS new_interests,
+            (SELECT COUNT(*) FROM project_likes l
+             WHERE l.project_id = p.id) AS like_count
      FROM projects p
      WHERE p.owner_id = ?
      ORDER BY p.created_at DESC, p.id DESC"
@@ -49,6 +52,8 @@ $content = render_template('dashboard', [
     'projects' => $projects,
     'submitted' => isset($_GET['submitted']),
     'updated' => isset($_GET['updated']),
+    'edited' => isset($_GET['edited']),
+    'editReviewDays' => edit_review_days(),
     'revision' => isset($_GET['revision']),
     'switched' => isset($_GET['switched']),
     'deleted' => isset($_GET['deleted']),
@@ -58,6 +63,7 @@ $content = render_template('dashboard', [
     'newInterestCount' => $newInterestCount,
     'myInterests' => $myInterests,
     'accountCount' => count(live_remembered_accounts()),
+    'likeThreshold' => like_threshold(),
 ]);
 
 echo render_site_page('Dashboard — Relay', 'Your Relay listings.', '/dashboard/', $content, true);

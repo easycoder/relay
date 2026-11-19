@@ -50,6 +50,12 @@ mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0005_add_magic_link_display_name.sql
 mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
   < db/migrations/0006_add_expiry_reminders.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0007_add_stages_endorsements_and_subject_audit.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0008_add_review_diffs.sql
+mysql -h mysql.eclecity.net -u eclecity_relay -p eclecity_relay \
+  < db/migrations/0009_add_edit_review.sql
 ```
 
 `0001` adds `projects.review_status` (`pending`, `approved`, `rejected`).
@@ -72,6 +78,18 @@ is requested.
 `0006` adds `project_expiry_reminders`, one row per reminder sent, so a cron
 run cannot send the same one twice. Run `php scripts/expiry-reminders.php` on a
 schedule (see the README).
+
+`0007` adds `projects.stage` (idea/prototype/live), `approval_source` and
+`auto_approval_blocked`, the `project_likes` table (reasoned likes), and
+`audit_log.subject_user_id`, so submission and rejection limits count from the
+audit trail even after a listing is deleted. It also gives existing pending
+submissions a six-month expiry.
+
+`0008` adds `projects.review_diff` and `project_revisions.diff`, the
+submission-time diff shown beside the full text on `/review/`.
+
+`0009` adds `projects.edited_at` and `projects.edit_review_status` for the
+immediate-edit re-review window. `review_status` can now be `taken_down`.
 
 ## Load the first listing
 
@@ -111,23 +129,46 @@ Or from the laptop:
 ```
 
 The build writes `public/home.html`, `public/projects/`, `public/learn/`,
-`public/projects.json`, `public/sitemap.xml` and `public/robots.txt`. Those
-files are generated on the server and excluded from code deploys.
+`public/about/`, `public/projects.json`, `public/sitemap.xml` and
+`public/robots.txt`. Those files are generated on the server and excluded from
+code deploys.
 
-## Human review
+## Review and community approval
 
-Only approved listings are published. Reviewers with the `admin` or
-`moderator` role use `/review/`; the CLI remains for new listings:
+Only approved listings are published. A listing starts `pending` and is visible
+in the waiting list at `/find/?view=pending` and on `/waiting/?slug=…` (both
+`noindex`). A pending listing can be approved by a threshold of reasoned
+likes (`like_threshold`, default 5) unless a reviewer has rejected it.
+Reviewers with the `admin` or `moderator` role use `/review/`; the CLI remains:
 
 ```sh
 php scripts/review.php list
 php scripts/review.php approve <slug>
 php scripts/review.php reject <slug> --note "reason"
+php scripts/review.php veto <slug> --note "reason"
+php scripts/review.php accept-edit <slug>
+php scripts/review.php takedown <slug> --note "reason"
 ```
 
-Revisions to live listings are reviewed at `/review/` as well. Then rebuild
-with `php scripts/build.php`. Each decision writes an `audit_log` row; the web
-queue sets `published_at` on first approval.
+A like requires a reason, one per account, and an account older than
+`like_min_account_age_days`; one IP is capped per day. A rejection requires a
+reason, blocks automatic approval, and clears the likes on resubmission.
+A veto reverses a community approval and does not count as a submission strike.
+
+Like counts are the number of `project_likes` rows. `/find/` and the cards read
+them live; the build writes them into `projects.json`.
+
+Edits to a live listing apply immediately. The listing is marked Edited and
+joins the Recently edited list for `edit_review_days` (default 14) days; if
+nobody acts it is accepted and the marker disappears. A reviewer can accept
+the edit (`accept-edit`) or take it down (`takedown`). A take-down sets
+`review_status='taken_down'`, emails the owner and removes the page on the
+next build; a correction returns to initial review. Legacy pending revisions
+remain in an Earlier revisions section.
+
+Then rebuild with `php scripts/build.php`. Each decision writes an `audit_log`
+row; the web queue sets `published_at` on first approval. Schedule the build
+too, so approvals and expiries do not wait for a button press.
 
 ## Check the connection
 

@@ -22,6 +22,13 @@ $categoryMap = array_column($categories, 'name', 'slug');
 $filters = search_filters_from($_GET, $categoryMap);
 $results = search_projects($pdo, $filters);
 
+$pendingTotal = (int) $pdo->query(
+    "SELECT COUNT(*) FROM projects
+     WHERE review_status = 'pending'
+       AND status NOT IN ('draft', 'archived')
+       AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())"
+)->fetchColumn();
+
 if (($_GET['format'] ?? '') === 'json') {
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
@@ -38,7 +45,12 @@ if (($_GET['format'] ?? '') === 'json') {
                 'slug' => $row['slug'],
                 'title' => $row['title'],
                 'pitch' => $row['pitch'],
+                'stage' => $row['stage'],
                 'status' => $row['status'],
+                'review_status' => $row['review_status'],
+                'approved' => $row['review_status'] === 'approved',
+                'edited_at' => edit_marker_visible($row) ? $row['edited_at'] : null,
+                'like_count' => (int) ($row['like_count'] ?? 0),
                 'arrangement' => $row['arrangement'],
                 'category' => $row['category'],
                 'category_name' => $row['category_name'],
@@ -50,7 +62,9 @@ if (($_GET['format'] ?? '') === 'json') {
                 'jurisdiction' => $row['jurisdiction'],
                 'keywords' => $row['keywords'],
                 'expires_at' => $row['expires_at'],
-                'url' => $siteUrl . '/projects/' . rawurlencode((string) $row['slug']) . '/',
+                'url' => $row['review_status'] === 'approved'
+                    ? $siteUrl . '/projects/' . rawurlencode((string) $row['slug']) . '/'
+                    : $siteUrl . '/waiting/?slug=' . rawurlencode((string) $row['slug']),
             ],
             $results['rows']
         ),
@@ -64,10 +78,13 @@ $content = render_template('find', [
     'results' => $results,
     'facets' => search_facet_counts($pdo, $filters),
     'categories' => $categories,
+    'stages' => stage_options(),
     'statuses' => project_status_options(),
     'arrangements' => arrangement_options(),
     'readiness' => readiness_options(),
     'efforts' => search_effort_options(),
+    'perPageOptions' => search_per_page_options(),
+    'pendingTotal' => $pendingTotal,
 ]);
 
 echo render_site_page(

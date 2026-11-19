@@ -34,7 +34,7 @@ function inline_markdown(string $text): string
 }
 
 /**
- * Render the safe subset of Markdown used by Adoption Briefs and guides:
+ * Render the safe subset of Markdown used by briefs and guides:
  * ## and ### headings, ordered and unordered lists, paragraphs, **bold**,
  * `inline code` and https links.
  *
@@ -156,6 +156,9 @@ function status_label(?string $status): string
         'seeking-successor' => 'Seeking successor',
         'seeking-co-maintainer' => 'Seeking co-maintainer',
         'seeking-buyer' => 'Seeking buyer',
+        'seeking-collaborator' => 'Seeking collaborator',
+        'seeking-testers' => 'Seeking testers',
+        'seeking-feedback' => 'Seeking feedback',
         'temporary-steward' => 'Temporary steward',
         'dormant' => 'Dormant',
         'adopted' => 'Adopted',
@@ -165,15 +168,51 @@ function status_label(?string $status): string
     return $labels[$status ?? ''] ?? ucfirst(str_replace('-', ' ', (string) $status));
 }
 
+function stage_label(?string $stage): string
+{
+    $labels = [
+        'idea' => 'Idea',
+        'prototype' => 'Prototype',
+        'live' => 'Live',
+    ];
+
+    return $labels[$stage ?? ''] ?? ucfirst((string) $stage);
+}
+
+/**
+ * The name of the brief depends on how far the work has got. The column is
+ * still `brief`; only the reader-facing name changes.
+ */
+function brief_label(?string $stage): string
+{
+    return match ($stage) {
+        'idea' => 'Idea Brief',
+        'prototype' => 'Project Brief',
+        default => 'Adoption Brief',
+    };
+}
+
 function review_label(?string $status): string
 {
     $labels = [
-        'pending' => 'Awaiting review',
+        'pending' => 'Pending approval',
         'approved' => 'Approved',
         'rejected' => 'Rejected',
+        'taken_down' => 'Taken down',
     ];
 
     return $labels[$status ?? ''] ?? ucfirst((string) $status);
+}
+
+/**
+ * The like count as prose, or an empty string when nobody has liked it.
+ *
+ * Public surfaces show the count only when it is positive: "0 likes" reads as a
+ * verdict on a new listing rather than an invitation to be the first.
+ */
+function like_count_label(int $count): string
+{
+    return $count > 0 ? $count . ' like' . ($count === 1 ? '' : 's') : '';
 }
 
 function arrangement_label(?string $arrangement): string

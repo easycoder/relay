@@ -13,10 +13,16 @@
 /** @var int|null $newInterestCount */
 /** @var array<int, array<string, mixed>>|null $myInterests */
 /** @var int $accountCount */
+/** @var int $likeThreshold */
+/** @var bool $edited */
+/** @var int $editReviewDays */
 
 $newInterestCount = $newInterestCount ?? 0;
 $myInterests = $myInterests ?? [];
 $accountCount = $accountCount ?? 0;
+$likeThreshold = (int) ($likeThreshold ?? 5);
+$edited = $edited ?? false;
+$editReviewDays = (int) ($editReviewDays ?? 14);
 
 ?>
 <section class="hero auth-hero">
@@ -26,7 +32,11 @@ $accountCount = $accountCount ?? 0;
 </section>
 
 <?php if ($submitted): ?>
-    <p class="notice">Your listing has been submitted. It will appear in the public catalogue after a person reviews it.</p>
+    <p class="notice">Your listing is in the waiting list. A reviewer can approve it, or it can reach the like threshold unless a reviewer asks to see it.</p>
+<?php endif; ?>
+
+<?php if (!empty($edited)): ?>
+    <p class="notice">Your edit is live. The public page updates on the next build; it is marked Edited and stays in the reviewer's re-review list for <?= (int) $editReviewDays ?> days unless accepted.</p>
 <?php endif; ?>
 
 <?php if (!empty($updated)): ?>
@@ -80,17 +90,33 @@ $accountCount = $accountCount ?? 0;
             ?>
             <article class="card">
                 <p class="badges">
+                    <span class="badge"><?= e(stage_label((string) ($project['stage'] ?? 'live'))) ?></span>
                     <span class="badge"><?= e(status_label($project['status'])) ?></span>
                     <span class="badge badge-quiet"><?= e(review_label($project['review_status'])) ?></span>
+                    <?php if (edit_marker_visible($project)): ?>
+                        <span class="badge badge-quiet">Edited <?= e(format_date($project['edited_at'])) ?></span>
+                    <?php endif; ?>
+                    <?php if (($project['approval_source'] ?? '') === 'community'): ?>
+                        <span class="badge badge-quiet">Approved by the community</span>
+                    <?php endif; ?>
+                    <?php $likeCount = (int) ($project['like_count'] ?? 0); ?>
+                    <?php if ($project['review_status'] === 'pending'): ?>
+                        <span class="badge badge-quiet"><?= $likeCount ?> of <?= (int) $likeThreshold ?> likes</span>
+                    <?php else: ?>
+                        <?php $likeLabel = like_count_label($likeCount); ?>
+                        <?php if ($likeLabel !== ''): ?>
+                            <span class="badge badge-quiet"><?= e($likeLabel) ?></span>
+                        <?php endif; ?>
+                    <?php endif; ?>
                     <?php if ((int) ($project['pending_revisions'] ?? 0) > 0): ?>
-                        <span class="badge badge-quiet">Revision awaiting review</span>
+                        <span class="badge badge-quiet">Earlier revision awaiting a decision</span>
                     <?php endif; ?>
                     <?php if ((int) ($project['new_interests'] ?? 0) > 0): ?>
                         <a class="badge badge-quiet" href="/interests/?project=<?= e($project['slug']) ?>"><?= (int) $project['new_interests'] ?> new expression<?= (int) $project['new_interests'] === 1 ? '' : 's' ?></a>
                     <?php endif; ?>
                 </p>
                 <h3><a href="<?= e($projectUrl) ?>"><?= e($project['title']) ?></a></h3>
-                <p class="card-meta">Submitted <?= e(format_date($project['created_at'])) ?> · <a href="/edit/?slug=<?= e($project['slug']) ?>"><?= $project['review_status'] === 'rejected' ? 'Edit and resubmit' : 'Edit' ?></a></p>
+                <p class="card-meta">Submitted <?= e(format_date($project['created_at'])) ?> · <a href="/edit/?slug=<?= e($project['slug']) ?>"><?= in_array($project['review_status'], ['rejected', 'taken_down'], true) ? 'Edit and resubmit' : 'Edit' ?></a></p>
                 <?php if ($project['review_status'] === 'approved' && !empty($project['expires_at'])): ?>
                     <?php $daysLeft = days_until((string) $project['expires_at']); ?>
                     <p class="meta">
@@ -105,11 +131,35 @@ $accountCount = $accountCount ?? 0;
                         <?php endif; ?>
                     </p>
                 <?php endif; ?>
+                <?php if ($project['review_status'] === 'pending' && !empty($project['expires_at'])): ?>
+                    <?php $daysLeft = days_until((string) $project['expires_at']); ?>
+                    <p class="meta">
+                        <?php if ($daysLeft !== null && $daysLeft < 0): ?>
+                            Expired while pending approval on <?= e(format_date($project['expires_at'])) ?>. Edit and resubmit to put it back in the queue.
+                        <?php elseif ($daysLeft !== null && $daysLeft <= 21): ?>
+                            Pending approval; the submission expires in <?= (int) $daysLeft ?> days, on <?= e(format_date($project['expires_at'])) ?>.
+                        <?php else: ?>
+                            Pending approval until <?= e(format_date($project['expires_at'])) ?>.
+                        <?php endif; ?>
+                    </p>
+                <?php endif; ?>
+                <?php if (edit_marker_visible($project)): ?>
+                    <p class="meta">Edited <?= e(format_date($project['edited_at'])) ?> — awaiting re-review. A reviewer may take it down for correction within <?= (int) $editReviewDays ?> days.</p>
+                <?php endif; ?>
+                <?php if ($project['review_status'] === 'pending' && !empty($project['auto_approval_blocked'])): ?>
+                    <p class="meta">A reviewer has asked to see this listing. Likes will not approve it automatically.</p>
+                <?php endif; ?>
                 <?php if ($project['review_status'] === 'rejected'): ?>
                     <?php if (!empty($project['review_note'])): ?>
                         <p class="meta">Reviewer's reason: <?= e($project['review_note']) ?></p>
                     <?php endif; ?>
                     <p class="meta">Rejected. The details you entered are kept: edit what needs changing and saving sends it back for review.</p>
+                <?php endif; ?>
+                <?php if ($project['review_status'] === 'taken_down'): ?>
+                    <?php if (!empty($project['review_note'])): ?>
+                        <p class="meta">Reviewer's reason: <?= e($project['review_note']) ?></p>
+                    <?php endif; ?>
+                    <p class="meta">Taken down. Correct it and save; it goes back to the review queue, and a person will approve it before it is published again.</p>
                 <?php endif; ?>
             </article>
         <?php endforeach; ?>

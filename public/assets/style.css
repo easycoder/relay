@@ -686,3 +686,117 @@ textarea {
     gap: 0.75rem 1rem;
     margin-top: 1rem;
 }
+
+/* The approved/waiting switch on the find page. */
+.view-switch {
+    margin-top: 1rem;
+}
+
+/* Reasons behind likes, shown to readers and reviewers. */
+.endorsement-list {
+    display: grid;
+    gap: 0.75rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.endorsement {
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.endorsement p {
+    margin: 0.25rem 0 0;
+}
+
+.endorsement p:first-child {
+    margin-top: 0;
+}
+
+.endorsement-panel {
+    margin-top: 1.5rem;
+}
+
+/* Review tabs: Changes / Full text. Radio inputs keep this working without JS. */
+.tabs > input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.tabs .tab-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 1rem 0 0.75rem;
+}
+
+.tabs .tab-labels label {
+    cursor: pointer;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    font-size: 0.9rem;
+}
+
+.tabs > input:nth-of-type(1):checked ~ .tab-labels label:nth-of-type(1),
+.tabs > input:nth-of-type(2):checked ~ .tab-labels label:nth-of-type(2) {
+    border-color: var(--ink);
+    font-weight: 650;
+}
+
+.tabs > input:focus-visible ~ .tab-labels label {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+}
+
+.tabs .tab-panel {
+    display: none;
+}
+
+.tabs > input:nth-of-type(1):checked ~ .tab-panels > .tab-panel:nth-of-type(1),
+.tabs > input:nth-of-type(2):checked ~ .tab-panels > .tab-panel:nth-of-type(2) {
+    display: block;
+}
+
+.diff-block {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    overflow: auto;
+}
+
+.diff-line {
+    padding: 0 0.75rem;
+    white-space: pre-wrap;
+}
+
+.diff-add {
+    background: #e7f6e9;
+    color: #1f5c2a;
+}
+
+.diff-remove {
+    background: #fbe9e7;
+    color: #7a231a;
+}
+
+.diff-skip {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.diff-field {
+    margin: 0.35rem 0;
+}
+
+.diff-field .diff-remove {
+    text-decoration: line-through;
+}

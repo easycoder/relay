@@ -6,10 +6,13 @@ $count = count($projects);
 
 ?>
 <p class="eyebrow">Catalogue</p>
-<h1>Projects seeking a next maintainer</h1>
-<p class="lede">Fewer, better listings. <?= $count ?> listing<?= $count === 1 ? '' : 's' ?> so far; the first one is the project itself.</p>
+<h1>Ideas, prototypes and projects</h1>
+<p class="lede">Fewer, better listings. <?= $count ?> listing<?= $count === 1 ? '' : 's' ?> so far, across ideas, prototypes and live projects.</p>
 
-<p class="actions"><a class="button button-secondary" href="/find/">Filter and search</a></p>
+<p class="actions">
+    <a class="button button-secondary" href="/find/">Filter and search</a>
+    <a class="button button-secondary" href="/find/?view=pending">See what is waiting for approval</a>
+</p>
 
 <?php if ($projects === []): ?>
     <p>No listings yet.</p>
